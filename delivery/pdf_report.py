@@ -10,12 +10,43 @@ from typing import List, Dict, Optional
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos
 
-FONT_DIR = Path("C:/Windows/Fonts")
+ASSETS_FONT_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
+WINDOWS_FONT_DIR = Path("C:/Windows/Fonts")
 
 PRIMARY = (30, 58, 138)     # azul oscuro
 ACCENT = (16, 185, 129)     # verde
 MUTED = (100, 116, 139)
 LIGHT_ROW = (241, 245, 249)
+
+
+def _sanitize(text: Any) -> str:
+    """Limpia caracteres que puedan romper la codificación en PDF."""
+    if not text:
+        return ""
+    s = str(text)
+    replacements = {
+        "—": "-",
+        "–": "-",
+        "•": "*",
+        "“": '"',
+        "”": '"',
+        "‘": "'",
+        "’": "'",
+        "\u202f": " ",
+        "\xa0": " ",
+        "…": "...",
+        "→": "->",
+        "✅": "[OK]",
+        "⭐": "[*]",
+        "🚀": "[>]",
+        "📋": "[-]",
+        "🎤": "[E]",
+        "❌": "[X]",
+    }
+    for old, new in replacements.items():
+        s = s.replace(old, new)
+    # Reemplazar cualquier otro carácter fuera de Latin-1/BMP si se usara core font
+    return s
 
 
 def _score_color(score: float):
@@ -38,23 +69,29 @@ def _as_list(value) -> List[str]:
 class _ReportPDF(FPDF):
     def __init__(self, candidate_name: str):
         super().__init__(orientation="L", unit="mm", format="A4")
-        self.candidate_name = candidate_name
-        # Soporte multiplataforma: Windows (Arial) y Linux / Streamlit Cloud (DejaVuSans)
-        font_candidates = [
-            (FONT_DIR / "arial.ttf", FONT_DIR / "arialbd.ttf"),
-            (Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"), Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")),
-        ]
+        self.candidate_name = _sanitize(candidate_name)
         self.font_name = "Helvetica"
-        for regular, bold in font_candidates:
-            if regular.exists() and bold.exists():
-                self.add_font("Body", "", str(regular))
-                self.add_font("Body", "B", str(bold))
-                self.font_name = "Body"
-                break
+
+        # Prioridad 1: Fuentes TrueType empaquetadas en el repositorio (funciona en Linux/Streamlit Cloud y Windows)
+        bundled_regular = ASSETS_FONT_DIR / "DejaVuSans.ttf"
+        bundled_bold = ASSETS_FONT_DIR / "DejaVuSans-Bold.ttf"
+
+        # Prioridad 2: Fuentes del sistema Windows
+        win_regular = WINDOWS_FONT_DIR / "arial.ttf"
+        win_bold = WINDOWS_FONT_DIR / "arialbd.ttf"
+
+        if bundled_regular.exists() and bundled_bold.exists():
+            self.add_font("Body", "", str(bundled_regular))
+            self.add_font("Body", "B", str(bundled_bold))
+            self.font_name = "Body"
+        elif win_regular.exists() and win_bold.exists():
+            self.add_font("Body", "", str(win_regular))
+            self.add_font("Body", "B", str(win_bold))
+            self.font_name = "Body"
+
         self.set_auto_page_break(auto=True, margin=15)
 
     def multi_cell(self, *args, **kwargs):
-        # Por defecto, volver al margen izquierdo en la línea siguiente
         kwargs.setdefault("new_x", XPos.LMARGIN)
         kwargs.setdefault("new_y", YPos.NEXT)
         return super().multi_cell(*args, **kwargs)
@@ -65,7 +102,8 @@ class _ReportPDF(FPDF):
         self.set_xy(10, 5)
         self.set_text_color(255, 255, 255)
         self.set_font(self.font_name, "B", 14)
-        self.cell(0, 8, f"Radar de Prácticas Preprofesionales — {self.candidate_name}")
+        header_text = _sanitize(f"Radar de Prácticas Preprofesionales - {self.candidate_name}")
+        self.cell(0, 8, header_text)
         self.set_text_color(0, 0, 0)
         self.set_y(24)
 
@@ -160,31 +198,31 @@ def generate_pdf_report(
         pdf.add_page()
         pdf.set_text_color(*PRIMARY)
         pdf.set_font(f, "B", 15)
-        pdf.multi_cell(0, 8, f"{idx}. {job['title']}")
+        pdf.multi_cell(0, 8, _sanitize(f"{idx}. {job['title']}"))
         pdf.set_font(f, "", 11)
         pdf.set_text_color(*MUTED)
-        pdf.multi_cell(0, 6, f"{job['company']}  ·  {job['modality']}  ·  {job['location']}  ·  "
-                             f"{job.get('salary') or 'Remuneración no informada'}")
+        pdf.multi_cell(0, 6, _sanitize(f"{job['company']}  |  {job['modality']}  |  {job['location']}  |  "
+                                       f"{job.get('salary') or 'Remuneración no informada'}"))
         pdf.ln(1)
 
         score = float(job["final_ranking_score"])
         pdf.set_font(f, "B", 11)
         pdf.set_text_color(*_score_color(score))
-        pdf.cell(0, 7, f"Compatibilidad: {score:.1f}/100   (técnico {float(job['technical_match_score']):.2f} · "
-                       f"modalidad {float(job['modality_score']):.2f} · ubicación {float(job['location_score']):.2f})",
+        pdf.cell(0, 7, _sanitize(f"Compatibilidad: {score:.1f}/100   (técnico {float(job['technical_match_score']):.2f} · "
+                                 f"modalidad {float(job['modality_score']):.2f} · ubicación {float(job['location_score']):.2f})"),
                  new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf.set_text_color(37, 99, 235)
         pdf.set_font(f, "", 10)
-        pdf.cell(0, 6, "Abrir convocatoria oficial", link=job["url"], new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.cell(0, 6, "Abrir convocatoria oficial ->", link=job["url"], new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf.ln(3)
 
         def section(title: str, body: str):
             pdf.set_font(f, "B", 11)
             pdf.set_text_color(0, 0, 0)
-            pdf.cell(0, 7, title, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+            pdf.cell(0, 7, _sanitize(title), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
             pdf.set_font(f, "", 10)
             pdf.set_text_color(40, 40, 40)
-            pdf.multi_cell(0, 5.5, body)
+            pdf.multi_cell(0, 5.5, _sanitize(body))
             pdf.ln(2)
 
         section("Análisis", job["verdict_summary"])
@@ -201,7 +239,7 @@ def generate_pdf_report(
         pdf.set_draw_color(*ACCENT)
         pdf.set_font(f, "", 10)
         pdf.set_text_color(6, 78, 59)
-        pdf.multi_cell(0, 5.5, job["pitch_recommendation"], border=1, fill=True, padding=3)
+        pdf.multi_cell(0, 5.5, _sanitize(job["pitch_recommendation"]), border=1, fill=True, padding=3)
 
     data = bytes(pdf.output())
     if output_path:

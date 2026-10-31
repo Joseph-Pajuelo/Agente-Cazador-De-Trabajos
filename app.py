@@ -198,14 +198,17 @@ event = st.dataframe(
 # ---------------- Exportar PDF ----------------
 col_a, col_b = st.columns([1, 3])
 with col_a:
-    pdf_bytes = generate_pdf_report(filtered, CANDIDATE_PROFILE["name"])
-    st.download_button(
-        "📄 Descargar Reporte PDF",
-        data=pdf_bytes,
-        file_name=f"radar_practicas_{datetime.now():%Y%m%d_%H%M}.pdf",
-        mime="application/pdf",
-        width="stretch",
-    )
+    try:
+        pdf_bytes = generate_pdf_report(filtered, CANDIDATE_PROFILE["name"])
+        st.download_button(
+            "📄 Descargar Reporte PDF",
+            data=pdf_bytes,
+            file_name=f"radar_practicas_{datetime.now():%Y%m%d_%H%M}.pdf",
+            mime="application/pdf",
+            width="stretch",
+        )
+    except Exception as e:
+        st.warning(f"No se pudo compilar el PDF: {e}")
 with col_b:
     st.caption("El PDF exporta las vacantes filtradas actualmente en la tabla con enlaces clicables y tu pitch por cada oferta.")
 
