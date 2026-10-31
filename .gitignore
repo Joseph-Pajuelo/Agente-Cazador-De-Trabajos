@@ -1,0 +1,17 @@
+# Credenciales y variables de entorno (NUNCA subir a GitHub)
+.env
+
+# Caché de Python y pruebas
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Archivos temporales de SQLite WAL
+*.db-wal
+*.db-shm
+
+# Entornos virtuales
+.venv/
+venv/
+env/
