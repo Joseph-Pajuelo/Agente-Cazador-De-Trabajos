@@ -106,3 +106,27 @@ def test_smart_search_agency_and_typos():
     assert len(res_distrito.jobs) == 1
     assert res_distrito.jobs[0]["id"] == 3
 
+
+def test_job_freshness_filtering():
+    from datetime import datetime, timedelta
+    from domain.ranking import is_job_recent, get_job_age_days, get_job_age_pill_html
+
+    now = datetime(2026, 11, 10, 12, 0, 0)
+
+    recent_job = {
+        "title": "Practicante Pre Profesional",
+        "published_at": (now - timedelta(days=5)).strftime("%Y-%m-%d"),
+    }
+    assert is_job_recent(recent_job, max_days=14, now=now) is True
+    assert get_job_age_days(recent_job, now=now) == 5
+    assert "Hace 5d" in get_job_age_pill_html(recent_job, now=now)
+
+    old_job = {
+        "title": "Practicante de Sistemas Antiguo",
+        "published_at": (now - timedelta(days=35)).strftime("%Y-%m-%d"),
+    }
+    assert is_job_recent(old_job, max_days=14, now=now) is False
+    assert get_job_age_days(old_job, now=now) == 35
+    assert "Hace 1 mes" in get_job_age_pill_html(old_job, now=now)
+
+

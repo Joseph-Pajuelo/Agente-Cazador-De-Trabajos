@@ -46,7 +46,13 @@ if (
 
 from config.candidate_profile import CANDIDATE_PROFILE
 from storage.database import DatabaseManager, APPLICATION_STATUSES
-from domain.ranking import sort_by_modality_then_score, is_recommended, MODALITY_ORDER
+from domain.ranking import (
+    sort_by_modality_then_score,
+    is_recommended,
+    is_job_recent,
+    get_job_age_pill_html,
+    MODALITY_ORDER,
+)
 from domain.companies import resolve_employer
 from domain.search_engine import search_jobs
 from run import run_pipeline, get_adapters
@@ -608,6 +614,11 @@ def render_interactive_workspace():
             )
         with f_col4:
             min_score = st.slider("Compatibilidad mín.", 0, 100, 50)
+            age_filter = st.selectbox(
+                "Antigüedad máx.",
+                options=["Máx. 2 semanas (14d)", "Máx. 1 mes (30d)", "Cualquier fecha"],
+                index=0,
+            )
         with f_col5:
             order = st.selectbox(
                 "Ordenar por",
@@ -617,6 +628,8 @@ def render_interactive_workspace():
                 ],
             )
             show_discarded_ai = st.checkbox("Incluir descartadas por IA (egresados)", value=False)
+
+    age_limit_days = 14 if "2 semanas" in age_filter else (30 if "1 mes" in age_filter else None)
 
     # 3. Filtrado base por pestaña, modalidad, portal y score
     if current_tab_key == "🌐 Activas":
@@ -644,7 +657,13 @@ def render_interactive_workspace():
             if not bool(j.get("is_pre_professional")) or bool(j.get("is_unrealistic_or_smoke")):
                 continue
 
-        # 2. Filtro de puntaje de compatibilidad:
+        # 2. Filtro estricto de Antigüedad (Máximo 2 semanas / 14 días por defecto):
+        # Descartar ofertas antiguas (ej. vacantes de hace 1 mes en LinkedIn), a menos que sean guardadas por el usuario
+        if age_limit_days is not None and not is_user_saved:
+            if not is_job_recent(j, max_days=age_limit_days):
+                continue
+
+        # 3. Filtro de puntaje de compatibilidad:
         # Si el usuario busca un término específico (ej. "bcp"), relajamos el umbral del slider
         # para no esconder ofertas relevantes de agencias que tengan puntaje menor al umbral.
         if float(j.get("final_ranking_score") or 0) < min_score and not is_user_saved and not has_active_query:
@@ -754,6 +773,7 @@ def render_interactive_workspace():
             )
             mod_pill = get_modality_pill_html(j["modality"])
             portal_pill = get_portal_pill_html(j["source"])
+            age_pill = get_job_age_pill_html(j)
             score_pill = get_score_pill_html(score_val)
             salary_str = html.escape(j.get("salary") or "Sueldo de ley")
 
@@ -789,7 +809,7 @@ def render_interactive_workspace():
                           <b>{html.escape(j['company'])}</b> &nbsp;·&nbsp; {html.escape(j['location'])} &nbsp;·&nbsp; {salary_str}
                         </div>
                         <div>
-                          {active_pill}{status_pill}{mod_pill}{portal_pill}
+                          {active_pill}{status_pill}{mod_pill}{portal_pill}{age_pill}
                         </div>
                         {note_html}
                       </div>
@@ -843,6 +863,7 @@ def render_interactive_workspace():
             det_score_pill = get_score_pill_html(float(job["final_ranking_score"]))
             det_mod_pill = get_modality_pill_html(job["modality"])
             det_portal_pill = get_portal_pill_html(job["source"])
+            det_age_pill = get_job_age_pill_html(job)
             engine_used = job.get("engine") or "heuristic"
             engine_label = "Gemini 3.8 Flash · CoT" if engine_used == "gemini-cot" else "LangGraph · Heurístico"
 
@@ -875,7 +896,7 @@ def render_interactive_workspace():
                       {html.escape(job.get('salary') or 'Remuneración de ley')}
                     </div>
                     <div>
-                      {det_score_pill}{det_mod_pill}{det_portal_pill}
+                      {det_score_pill}{det_mod_pill}{det_portal_pill}{det_age_pill}
                       <span class='pill pill-neutral'>Afinidad técnica: {float(job['technical_match_score']) * 100:.0f}%</span>
                       <span class='pill pill-neutral'>{html.escape(engine_label)}</span>
                     </div>
@@ -934,45 +955,9 @@ def render_interactive_workspace():
                     unsafe_allow_html=True,
                 )
 
-            # Cadena de Razonamiento (Chain-of-Thought · LangGraph)
             st.divider()
-            cot_hdr1, cot_hdr2 = st.columns([2.2, 1.2], vertical_alignment="center")
-            with cot_hdr1:
-                st.markdown("###### Razonamiento paso a paso (Chain-of-Thought · LangGraph)")
-            with cot_hdr2:
-                if st.button(
-                    "Re-evaluar con IA (CoT)",
-                    key=f"reeval_cot_{job['id']}",
-                    use_container_width=True,
-                    help="Ejecuta el grafo LangGraph + Chain-of-Thought sobre esta vacante",
-                ):
-                    db = DatabaseManager()
-                    listing_obj = db.get_listing(int(job["id"]))
-                    if listing_obj:
-                        matcher = JobMatcherAI()
-                        new_eval = matcher.evaluate(listing_obj, CANDIDATE_PROFILE)
-                        db.insert_evaluation(int(job["id"]), new_eval)
-                        db.checkpoint()
-                        refresh_jobs_in_state()
-                        st.session_state["selected_job_id"] = int(job["id"])
-                        st.toast("Vacante re-evaluada con LangGraph + CoT")
-                        st.rerun()
-
-            cot_data = parse_reasoning(job.get("reasoning_chain"), job)
-            cot_steps = [
-                ("1. Elegibilidad académica", cot_data.get("academic_eligibility", "")),
-                ("2. Experiencia requerida", cot_data.get("experience_requirements", "")),
-                ("3. Coincidencia técnica con tu CV", cot_data.get("tech_stack_overlap", "")),
-                ("4. Brechas y riesgos", cot_data.get("gaps_and_risks", "")),
-                ("5. Derivación del puntaje", cot_data.get("score_rationale", "")),
-            ]
-            cot_html = "".join(
-                f"<div class='cot-box'><div class='cot-step-title'>{html.escape(step_title)}</div>"
-                f"<div>{html.escape(step_body)}</div></div>"
-                for step_title, step_body in cot_steps
-                if step_body
-            )
-            st.markdown(cot_html, unsafe_allow_html=True)
+            with st.expander("Ver descripción completa del anuncio", expanded=False):
+                st.text(job.get("raw_description") or "Sin descripción adicional.")
 
             st.divider()
             st.markdown("###### Notas personales")
@@ -988,9 +973,6 @@ def render_interactive_workspace():
                 update_job_crm(int(job["id"]), cur_status, notes=notes_val)
                 st.toast("Nota guardada en memoria.")
                 st.rerun(scope="fragment")
-
-            with st.expander("Ver descripción completa del anuncio"):
-                st.text(job.get("raw_description") or "Sin descripción adicional.")
 
 
 render_interactive_workspace()

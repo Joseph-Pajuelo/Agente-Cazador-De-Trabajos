@@ -7,6 +7,7 @@ Hacemos una búsqueda por cada modalidad para ETIQUETAR la modalidad de forma co
 en vez de adivinarla del texto.
 """
 import logging
+from datetime import datetime
 from typing import List, Dict
 
 from bs4 import BeautifulSoup
@@ -70,7 +71,7 @@ class LinkedInGuestAdapter(BaseJobAdapter):
         found: Dict[str, Dict] = {}
         skip_urls = set(known_urls or ())
         with self._client() as client:
-            # 1) Búsquedas por palabra clave x modalidad ordenadas por más recientes (sortBy=DD)
+            # 1) Búsquedas por palabra clave x modalidad (máximo 14 días / 2 semanas: f_TPR=r1209600)
             for keyword in self.keywords:
                 for wt, modality in WORKPLACE_FILTERS:
                     if len(found) >= limit:
@@ -79,14 +80,26 @@ class LinkedInGuestAdapter(BaseJobAdapter):
                         "keywords": keyword,
                         "location": SEARCH_LOCATION,
                         "f_WT": wt,
+                        "f_TPR": "r1209600",  # Filtro oficial LinkedIn: últimas 2 semanas (14 días en segundos)
                         "sortBy": "DD",
                         "start": 0,
                     })
                     if resp is None:
                         continue
+                    now = datetime.now()
                     for item in self.parse_search_results(resp.text):
                         if item["url"] in skip_urls:
                             continue
+                        # Validación estricta de antigüedad: máximo 14 días (2 semanas)
+                        pub_str = item.get("published_at")
+                        if pub_str:
+                            try:
+                                p_dt = datetime.strptime(pub_str[:10], "%Y-%m-%d")
+                                if (now - p_dt).days > 14:
+                                    continue
+                            except ValueError:
+                                pass
+
                         if item["job_id"] not in found and len(found) < limit:
                             item["modality"] = modality
                             found[item["job_id"]] = item

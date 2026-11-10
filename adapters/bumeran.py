@@ -8,6 +8,7 @@ import html
 import logging
 import re
 import time
+from datetime import datetime
 from typing import List, Dict, Any
 
 import httpx
@@ -110,9 +111,24 @@ class BumeranAdapter(BaseJobAdapter):
                         continue
                     payload = resp.json()
                     items = payload.get("content") or []
+                    now = datetime.now()
                     for parsed in self.parse_api_items(items):
                         if parsed["url"] in seen_urls or len(listings) >= limit:
                             continue
+
+                        # Validación estricta de antigüedad: máximo 14 días (2 semanas)
+                        pub_str = parsed.get("published_at")
+                        if pub_str:
+                            for fmt in ("%d-%m-%Y", "%Y-%m-%d"):
+                                try:
+                                    dt = datetime.strptime(pub_str.strip()[:10], fmt)
+                                    if (now - dt).days > 14:
+                                        pub_str = None
+                                        break
+                                except ValueError:
+                                    pass
+                            if pub_str is None:
+                                continue
                         seen_urls.add(parsed["url"])
                         listing = JobListing(
                             source=JobSource.BUMERAN,
