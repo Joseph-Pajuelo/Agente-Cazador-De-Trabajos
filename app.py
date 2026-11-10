@@ -2,6 +2,7 @@
 Dashboard web del Job Hunter Agent.
 Ejecutar con:  streamlit run app.py
 """
+import importlib
 import json
 import os
 import sys
@@ -12,6 +13,19 @@ import streamlit as st
 root_dir = Path(__file__).resolve().parent
 if str(root_dir) not in sys.path:
     sys.path.insert(0, str(root_dir))
+
+import config.search as _cfg_search
+import storage.database as _storage_db
+import ai.matcher as _ai_matcher
+import run as _run_mod
+
+# Si Streamlit Cloud hizo hot-reload en caliente sin reiniciar el proceso Python,
+# recargamos los submódulos en RAM para que tomen las nuevas funciones del último commit.
+if not hasattr(_ai_matcher, "resolve_gemini_api_key") or not hasattr(_storage_db.DatabaseManager, "checkpoint"):
+    importlib.reload(_cfg_search)
+    importlib.reload(_storage_db)
+    importlib.reload(_ai_matcher)
+    importlib.reload(_run_mod)
 
 from config.candidate_profile import CANDIDATE_PROFILE
 from storage.database import DatabaseManager, APPLICATION_STATUSES

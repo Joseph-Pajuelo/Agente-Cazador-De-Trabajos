@@ -23,7 +23,7 @@ jobs:
 
       - name: Despertar y mantener activa la App en Streamlit Cloud
         env:
-          STREAMLIT_APP_URL: ${{ secrets.STREAMLIT_APP_URL || vars.STREAMLIT_APP_URL || 'https://agente-cazador-de-trabajos.streamlit.app' }}
+          STREAMLIT_APP_URL: ${{ secrets.STREAMLIT_APP_URL || vars.STREAMLIT_APP_URL || 'https://agente-cazador-de-trabajos-4fdczfbzzkmw3tfuipjwek.streamlit.app/' }}
         run: |
           python - << 'EOF'
           import os, sys, time
