@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import logging
 import re
@@ -16,6 +17,35 @@ logger = logging.getLogger(__name__)
 ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 
 
+def resolve_gemini_api_key(explicit_key: str | None = None) -> str | None:
+    """
+    Resuelve la GEMINI_API_KEY con prioridad:
+    1. Clave explícita pasada por parámetro
+    2. Streamlit session_state / st.secrets (persistente en Streamlit Cloud)
+    3. Variables de entorno / archivo local .env
+    """
+    if explicit_key and explicit_key.strip():
+        return explicit_key.strip()
+
+    if "streamlit" in sys.modules:
+        try:
+            st = sys.modules["streamlit"]
+            session_key = (st.session_state.get("GEMINI_API_KEY") or "").strip()
+            if session_key:
+                return session_key
+            secret_key = (st.secrets.get("GEMINI_API_KEY") or "").strip()
+            if secret_key:
+                return secret_key
+        except Exception:
+            pass
+
+    if ENV_PATH.exists():
+        load_dotenv(ENV_PATH, override=True)
+
+    env_key = (os.environ.get("GEMINI_API_KEY") or "").strip()
+    return env_key or None
+
+
 class JobMatcherAI:
     """
     Motor de evaluación semántica y matching de vacantes.
@@ -28,9 +58,7 @@ class JobMatcherAI:
     MODEL_ID = "gemini-3.8-flash"
 
     def __init__(self, api_key: str | None = None):
-        if ENV_PATH.exists():
-            load_dotenv(ENV_PATH, override=True)
-        self.api_key = (api_key or os.environ.get("GEMINI_API_KEY") or "").strip() or None
+        self.api_key = resolve_gemini_api_key(api_key)
         self.client = None
         self._circuit_open = False
         if self.api_key:

@@ -5,7 +5,7 @@ Página 1: resumen + tabla de vacantes. Páginas siguientes: detalle con anális
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos

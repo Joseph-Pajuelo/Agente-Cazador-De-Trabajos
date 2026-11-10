@@ -1,6 +1,10 @@
+import base64
 import sqlite3
 import json
 import logging
+import os
+import sys
+import threading
 from pathlib import Path
 from typing import Optional, List, Tuple
 from domain.models import JobListing, JobEvaluation
@@ -16,19 +20,39 @@ APPLICATION_STATUSES = [
     "❌ Descartada por mí",
 ]
 
+GITHUB_REPO = "Joseph-Pajuelo/Agente-Cazador-De-Trabajos"
+GITHUB_CRM_PATH = "storage/crm_memory.json"
+
+
+def _resolve_github_token() -> Optional[str]:
+    if "streamlit" in sys.modules:
+        try:
+            st = sys.modules["streamlit"]
+            tok = (st.secrets.get("GITHUB_TOKEN") or "").strip()
+            if tok:
+                return tok
+        except Exception:
+            pass
+    tok = (os.environ.get("GITHUB_TOKEN") or "").strip()
+    return tok or None
+
 
 class DatabaseManager:
     """
-    Gestor de base de datos SQLite con modo WAL (Write-Ahead Logging).
+    Gestor de base de datos SQLite con modo WAL (Write-Ahead Logging) y Memoria Persistente CRM.
     Garantiza consistencia ACID, deduplicación mediante SHA-256, seguimiento de postulaciones
-    y cero bloqueos de lectura.
+    en disco + JSON espejo (y sincronización opcional en la nube vía GitHub API).
     """
     def __init__(self, db_path: Optional[str] = None):
         if db_path is None:
             base_dir = Path(__file__).resolve().parent.parent
             self.db_path = str(base_dir / "jobs.db")
+            self._memory_path: Optional[Path] = Path(__file__).resolve().parent / "crm_memory.json"
+            self._is_main_db = True
         else:
             self.db_path = db_path
+            self._memory_path = None
+            self._is_main_db = False
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
@@ -38,6 +62,55 @@ class DatabaseManager:
             conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute("PRAGMA synchronous=NORMAL;")
         return conn
+
+    def _load_crm_memory(self) -> dict:
+        if not self._memory_path or not self._memory_path.exists():
+            return {}
+        try:
+            return json.loads(self._memory_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning(f"No se pudo leer crm_memory.json: {e}")
+            return {}
+
+    def _save_crm_memory(self, memory: dict):
+        if not self._memory_path:
+            return
+        try:
+            content = json.dumps(memory, ensure_ascii=False, indent=2)
+            self._memory_path.write_text(content, encoding="utf-8")
+            if self._is_main_db:
+                self._push_crm_to_github_async(content)
+        except Exception as e:
+            logger.warning(f"No se pudo guardar crm_memory.json: {e}")
+
+    def _push_crm_to_github_async(self, content_str: str):
+        """Si existe GITHUB_TOKEN en Secrets/Env, respalda crm_memory.json en GitHub sin bloquear la UI."""
+        token = _resolve_github_token()
+        if not token:
+            return
+
+        def _worker():
+            try:
+                import httpx
+                url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_CRM_PATH}"
+                headers = {
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/vnd.github+json",
+                }
+                with httpx.Client(timeout=10.0) as client:
+                    get_resp = client.get(url, headers=headers)
+                    sha = get_resp.json().get("sha") if get_resp.status_code == 200 else None
+                    payload = {
+                        "message": "chore(crm): auto-sync estado de postulaciones y favoritas",
+                        "content": base64.b64encode(content_str.encode("utf-8")).decode("ascii"),
+                    }
+                    if sha:
+                        payload["sha"] = sha
+                    client.put(url, headers=headers, json=payload)
+            except Exception as exc:
+                logger.debug(f"GitHub CRM sync omitido: {exc}")
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _init_db(self):
         with self._get_connection() as conn:
@@ -92,7 +165,38 @@ class DatabaseManager:
                     FOREIGN KEY (listing_id) REFERENCES job_listings (id) ON DELETE CASCADE
                 );
             """)
+
+            # Reconciliar memoria CRM persistente (recupera Favoritas / Postuladas / Notas)
+            if self._memory_path:
+                memory = self._load_crm_memory()
+                for dedup_hash, data in memory.items():
+                    cursor.execute(
+                        """
+                        UPDATE job_listings
+                        SET application_status = ?,
+                            applied_at = COALESCE(?, applied_at),
+                            user_notes = CASE WHEN user_notes = '' THEN ? ELSE user_notes END
+                        WHERE deduplication_hash = ?
+                          AND (application_status = '📋 Por postular' OR user_notes = '')
+                        """,
+                        (
+                            data.get("application_status", "📋 Por postular"),
+                            data.get("applied_at"),
+                            data.get("user_notes", ""),
+                            dedup_hash,
+                        ),
+                    )
             conn.commit()
+
+    def checkpoint(self):
+        """Vuelca el archivo WAL completamente dentro de jobs.db para que pueda subirse a Git sin pérdidas."""
+        if self.db_path == ":memory:":
+            return
+        try:
+            with self._get_connection() as conn:
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+        except Exception as e:
+            logger.debug(f"No se pudo ejecutar wal_checkpoint: {e}")
 
     def exists_by_hash(self, deduplication_hash: str) -> bool:
         with self._get_connection() as conn:
@@ -168,7 +272,7 @@ class DatabaseManager:
             conn.commit()
 
     def update_application_status(self, listing_id: int, app_status: str, notes: Optional[str] = None):
-        """Actualiza el estado de postulación ('🚀 Postulado', etc.) y las notas del candidato."""
+        """Actualiza el estado de postulación ('🚀 Postulado', etc.), notas y sincroniza la memoria CRM."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             if app_status == "🚀 Postulado":
@@ -187,6 +291,43 @@ class DatabaseManager:
                     (notes, listing_id),
                 )
             conn.commit()
+            if self.db_path != ":memory:":
+                try:
+                    conn.execute("PRAGMA wal_checkpoint(PASSIVE);")
+                except Exception:
+                    pass
+
+            if self._memory_path:
+                rows = cursor.execute(
+                    """
+                    SELECT deduplication_hash, application_status, applied_at, user_notes
+                    FROM job_listings
+                    WHERE application_status != '📋 Por postular' OR (user_notes IS NOT NULL AND user_notes != '')
+                    """
+                ).fetchall()
+                memory = self._load_crm_memory()
+                # Actualizar estado de la fila recién modificada (incluso si volvió a '📋 Por postular')
+                cur_row = cursor.execute(
+                    "SELECT deduplication_hash, application_status, applied_at, user_notes FROM job_listings WHERE id = ?",
+                    (listing_id,),
+                ).fetchone()
+                if cur_row:
+                    h = cur_row["deduplication_hash"]
+                    if cur_row["application_status"] == "📋 Por postular" and not (cur_row["user_notes"] or "").strip():
+                        memory.pop(h, None)
+                    else:
+                        memory[h] = {
+                            "application_status": cur_row["application_status"],
+                            "applied_at": cur_row["applied_at"],
+                            "user_notes": cur_row["user_notes"] or "",
+                        }
+                for r in rows:
+                    memory[r["deduplication_hash"]] = {
+                        "application_status": r["application_status"],
+                        "applied_at": r["applied_at"],
+                        "user_notes": r["user_notes"] or "",
+                    }
+                self._save_crm_memory(memory)
 
     def get_pending_listings(self, limit: int = 200) -> List[Tuple[int, JobListing]]:
         with self._get_connection() as conn:

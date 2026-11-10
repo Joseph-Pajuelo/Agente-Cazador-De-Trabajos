@@ -12,7 +12,7 @@ SEARCH_KEYWORDS = [
     "practicante desarrollo software",
     "practicante inteligencia artificial",
     "practicante tecnologia",
-    "practicante recursos humanos",
+    "practicante ingenieria de sistemas",
 ]
 
 SEARCH_LOCATION = "Lima, Peru"

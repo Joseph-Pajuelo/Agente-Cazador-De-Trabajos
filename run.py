@@ -122,6 +122,9 @@ def run_pipeline(
         generate_pdf_report(recommended, CANDIDATE_PROFILE["name"], str(pdf_path))
         logger.info(f"Reporte PDF generado en: {pdf_path}")
 
+    # Consolidar WAL en jobs.db para persistencia limpia en disco / Git
+    db.checkpoint()
+
     if on_progress:
         on_progress("¡Proceso completado!", 1.0)
 
@@ -138,7 +141,19 @@ def run_pipeline(
 
 
 if __name__ == "__main__":
-    summary = run_pipeline(limit_per_source=6, min_score=50.0)
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Job Hunter & ATS Tailor Agent Pipeline")
+    parser.add_argument("--limit", type=int, default=8, help="Límite de vacantes por portal")
+    parser.add_argument("--min-score", type=float, default=50.0, help="Puntaje mínimo recomendado")
+    parser.add_argument("--no-pdf", action="store_true", help="Omitir la generación de reporte PDF")
+    args = parser.parse_args()
+
+    summary = run_pipeline(
+        limit_per_source=args.limit,
+        min_score=args.min_score,
+        generate_pdf=not args.no_pdf,
+    )
     print("\n" + "=" * 75)
     for k, v in summary.items():
         print(f"  {k:14}: {v}")
