@@ -36,7 +36,60 @@ class JobListing(BaseModel):
             return " ".join(v.split()).strip()
         return v
 
+class ReasoningChain(BaseModel):
+    """
+    Cadena de razonamiento (Chain-of-Thought) explícita y auditable.
+    Se genera ANTES de los veredictos numéricos para que el puntaje sea consecuencia del análisis.
+    """
+    academic_eligibility: str = Field(
+        ...,
+        description="Paso 1: ¿Qué nivel académico exige la oferta (ciclo, egresado, bachiller)? ¿Encaja con un estudiante de 8vo ciclo?",
+    )
+    experience_requirements: str = Field(
+        ...,
+        description="Paso 2: ¿Cuánta experiencia formal pide? ¿Es realista para un practicante o es una oferta trampa?",
+    )
+    tech_stack_overlap: str = Field(
+        ...,
+        description="Paso 3: Tecnologías y conocimientos pedidos que el candidato SÍ domina, citando su experiencia o proyectos.",
+    )
+    gaps_and_risks: str = Field(
+        ...,
+        description="Paso 4: Requisitos que el candidato NO cubre y qué tan críticos son para el puesto.",
+    )
+    score_rationale: str = Field(
+        ...,
+        description="Paso 5: Conclusión que justifica el puntaje técnico a partir de los pasos anteriores.",
+    )
+
+
+class LLMJobAssessment(BaseModel):
+    """
+    Esquema de salida estructurada que se pide a Gemini.
+    El orden de los campos es deliberado: primero `reasoning` (CoT), después las decisiones.
+    Modalidad, ubicación y ranking final NO los decide el LLM: se calculan de forma determinista.
+    """
+    reasoning: ReasoningChain
+    is_pre_professional: bool = Field(
+        ..., description="True solo si la oferta es apta para un estudiante universitario activo (no egresado)."
+    )
+    is_unrealistic_or_smoke: bool = Field(
+        ..., description="True si es oferta trampa: sin remuneración, o exige experiencia/conocimientos de nivel senior."
+    )
+    technical_match_score: float = Field(
+        ..., ge=0.0, le=1.0, description="Afinidad técnica 0.0-1.0, coherente con `reasoning.score_rationale`."
+    )
+    matching_skills: List[str] = Field(default_factory=list, description="Habilidades del candidato que la oferta pide.")
+    missing_skills: List[str] = Field(default_factory=list, description="Requisitos que el candidato no menciona.")
+    verdict_summary: str = Field(..., description="Síntesis de 2 a 3 líneas: conviene o no postular y por qué.")
+
+
 class JobEvaluation(BaseModel):
+    reasoning: Optional[ReasoningChain] = Field(
+        default=None,
+        description="Cadena de razonamiento paso a paso que justifica la evaluación.",
+    )
+    engine: str = Field(default="heuristic", description="Motor que produjo la evaluación: 'gemini-cot' o 'heuristic'.")
     is_pre_professional: bool = Field(
         ..., 
         description="True si es una práctica preprofesional válida para estudiante universitario, False si pide experiencia de titulado o senior."
@@ -82,6 +135,6 @@ class JobEvaluation(BaseModel):
         description="Síntesis de 2 a 3 líneas explicando por qué conviene o no postular."
     )
     pitch_recommendation: str = Field(
-        ..., 
-        description="Un elevator pitch personalizado de 1 párrafo para postular a esta vacante resaltando su experiencia relevante."
+        default="",
+        description="(Obsoleto) Se mantiene vacío por compatibilidad con la columna existente en la base de datos.",
     )

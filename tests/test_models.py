@@ -50,3 +50,43 @@ def test_job_evaluation_invalid_score_fails():
             verdict_summary="Error",
             pitch_recommendation="Error"
         )
+
+
+def test_smart_search_agency_and_typos():
+    from domain.search_engine import search_jobs
+
+    sample_jobs = [
+        {
+            "id": 1,
+            "title": "Practicante de Ingeniería de Datos",
+            "company": "BANCO DE CREDITO(BCP)",
+            "location": "La Molina, Lima",
+            "modality": "Híbrido",
+            "matching_skills": '["Python", "SQL"]',
+            "raw_description": "Prácticas preprofesionales con Python y SQL en BCP.",
+            "final_ranking_score": 90.0,
+        },
+        {
+            "id": 2,
+            "title": "Practicante Preprofesional de Ingeniería — Sector Banca",
+            "company": "ManpowerGroup",
+            "location": "Lima",
+            "modality": "Híbrido",
+            "matching_skills": '["Excel"]',
+            "raw_description": "Únete a nuestra convocatoria en el banco más grande del Perú.",
+            "final_ranking_score": 82.0,
+        },
+    ]
+
+    # 1. Buscar "bcp" debe traer tanto la directa del BCP como la de ManpowerGroup para "el banco más grande del Perú"
+    res_bcp = search_jobs(sample_jobs, "bcp")
+    assert len(res_bcp.jobs) == 2
+    assert res_bcp.agency_matches_count == 1
+    assert res_bcp.jobs[1]["_search_note"] is not None
+
+    # 2. Buscar con error ortográfico ("phyton") debe corregir a "python" y encontrar la vacante #1
+    res_typo = search_jobs(sample_jobs, "phyton")
+    assert res_typo.corrected_query == "python"
+    assert len(res_typo.jobs) == 1
+    assert res_typo.jobs[0]["id"] == 1
+

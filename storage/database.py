@@ -162,9 +162,19 @@ class DatabaseManager:
                     verdict_summary TEXT NOT NULL,
                     pitch_recommendation TEXT NOT NULL,
                     evaluated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    reasoning_chain TEXT,
+                    engine TEXT DEFAULT 'heuristic',
                     FOREIGN KEY (listing_id) REFERENCES job_listings (id) ON DELETE CASCADE
                 );
             """)
+
+            eval_cols = {
+                row["name"] for row in cursor.execute("PRAGMA table_info(job_evaluations);").fetchall()
+            }
+            if "reasoning_chain" not in eval_cols:
+                cursor.execute("ALTER TABLE job_evaluations ADD COLUMN reasoning_chain TEXT;")
+            if "engine" not in eval_cols:
+                cursor.execute("ALTER TABLE job_evaluations ADD COLUMN engine TEXT DEFAULT 'heuristic';")
 
             # Reconciliar memoria CRM persistente (recupera Favoritas / Postuladas / Notas)
             if self._memory_path:
@@ -253,8 +263,9 @@ class DatabaseManager:
                 INSERT OR REPLACE INTO job_evaluations (
                     listing_id, is_pre_professional, is_unrealistic_or_smoke,
                     technical_match_score, modality_score, location_score, final_ranking_score,
-                    matching_skills, missing_skills, verdict_summary, pitch_recommendation
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    matching_skills, missing_skills, verdict_summary, pitch_recommendation,
+                    reasoning_chain, engine
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 listing_id,
                 1 if evaluation.is_pre_professional else 0,
@@ -266,7 +277,9 @@ class DatabaseManager:
                 json.dumps(evaluation.matching_skills, ensure_ascii=False),
                 json.dumps(evaluation.missing_skills, ensure_ascii=False),
                 evaluation.verdict_summary,
-                evaluation.pitch_recommendation
+                evaluation.pitch_recommendation or "",
+                evaluation.reasoning.model_dump_json() if evaluation.reasoning else None,
+                evaluation.engine,
             ))
             cursor.execute("UPDATE job_listings SET status = 'EVALUATED' WHERE id = ?", (listing_id,))
             conn.commit()
@@ -357,6 +370,26 @@ class DatabaseManager:
                 results.append((row["id"], listing))
             return results
 
+    def get_listing(self, listing_id: int) -> Optional[JobListing]:
+        """Recupera una vacante concreta (para re-evaluarla individualmente desde el dashboard)."""
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT * FROM job_listings WHERE id = ?", (listing_id,)).fetchone()
+            if not row:
+                return None
+            return JobListing(
+                id=str(row["id"]),
+                source=JobSource(row["source"]),
+                title=row["title"],
+                company=row["company"],
+                location=row["location"],
+                modality=Modality(row["modality"]) if row["modality"] in Modality._value2member_map_ else Modality.DESCONOCIDO,
+                url=row["url"],
+                salary=row["salary"],
+                raw_description=row["raw_description"],
+                published_at=row["published_at"],
+                deduplication_hash=row["deduplication_hash"],
+            )
+
     def reset_evaluations(self):
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -377,7 +410,7 @@ class DatabaseManager:
                     e.is_pre_professional, e.is_unrealistic_or_smoke,
                     e.technical_match_score, e.modality_score, e.location_score, e.final_ranking_score,
                     e.matching_skills, e.missing_skills, e.verdict_summary, e.pitch_recommendation,
-                    e.evaluated_at
+                    e.evaluated_at, e.reasoning_chain, COALESCE(e.engine, 'heuristic') AS engine
                 FROM job_listings j
                 INNER JOIN job_evaluations e ON j.id = e.listing_id
                 ORDER BY e.final_ranking_score DESC

@@ -1,5 +1,5 @@
 """
-Dashboard web del Job Hunter Agent — Estilo Otta / Wellfound Editorial Light.
+Dashboard web del Job Hunter Agent — Estilo Editorial Limpio con Buscador Inteligente y LangGraph + CoT.
 Ejecutar con:  streamlit run app.py
 """
 import hashlib
@@ -18,21 +18,37 @@ if str(root_dir) not in sys.path:
     sys.path.insert(0, str(root_dir))
 
 import config.search as _cfg_search
+import domain.models as _dom_models
+import domain.companies as _dom_comp
+import domain.search_engine as _dom_search
 import storage.database as _storage_db
+import ai.prompts as _ai_prompts
 import ai.matcher as _ai_matcher
+import ai.graph as _ai_graph
 import run as _run_mod
 
 # Si Streamlit Cloud hizo hot-reload en caliente sin reiniciar el proceso Python,
 # recargamos los submódulos en RAM para que tomen las nuevas funciones del último commit.
-if not hasattr(_ai_matcher, "resolve_gemini_api_key") or not hasattr(_storage_db.DatabaseManager, "checkpoint"):
+if (
+    not hasattr(_dom_models, "ReasoningChain")
+    or not hasattr(_storage_db.DatabaseManager, "get_listing")
+    or not hasattr(_ai_matcher.JobMatcherAI, "assess_with_gemini")
+):
     importlib.reload(_cfg_search)
+    importlib.reload(_dom_models)
+    importlib.reload(_dom_comp)
+    importlib.reload(_dom_search)
     importlib.reload(_storage_db)
+    importlib.reload(_ai_prompts)
     importlib.reload(_ai_matcher)
+    importlib.reload(_ai_graph)
     importlib.reload(_run_mod)
 
 from config.candidate_profile import CANDIDATE_PROFILE
 from storage.database import DatabaseManager, APPLICATION_STATUSES
 from domain.ranking import sort_by_modality_then_score, is_recommended, MODALITY_ORDER
+from domain.companies import resolve_employer
+from domain.search_engine import search_jobs
 from run import run_pipeline, get_adapters
 from ai.matcher import JobMatcherAI, resolve_gemini_api_key
 
@@ -45,160 +61,192 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ---------------- Estilos CSS: Opción B (Otta / Wellfound Editorial Light) ----------------
+# ---------------- Estilos CSS: Paleta Editorial Armónica (Slate & Navy) ----------------
 st.markdown(
     """
     <style>
-      /* Fondo general papel editorial limpio */
       .stApp {
         background-color: #F8FAFC !important;
         color: #0F172A !important;
       }
+      /* Hacer transparente la barra superior de Streamlit y dar espacio real arriba para que NO corte el título */
+      header[data-testid="stHeader"] {
+        background: transparent !important;
+        height: 2.2rem !important;
+      }
       .block-container {
-        padding-top: 1.1rem !important;
+        padding-top: 2.8rem !important;
         padding-bottom: 2.5rem !important;
-        max-width: 1440px !important;
+        max-width: 1420px !important;
       }
       [data-testid="collapsedControl"] {display: none;}
 
-      /* Contenedores con borde estilo tarjeta Otta */
+      /* Contenedores con borde estilo tarjeta editorial */
       div[data-testid="stVerticalBlockBorderWrapper"] {
         background-color: #FFFFFF !important;
         border: 1px solid #E2E8F0 !important;
-        border-radius: 14px !important;
-        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04) !important;
-        transition: all 0.15s ease-in-out;
+        border-radius: 12px !important;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03) !important;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
       }
       div[data-testid="stVerticalBlockBorderWrapper"]:hover {
         border-color: #CBD5E1 !important;
-        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06) !important;
+      }
+
+      /* Suavizar los chips de st.multiselect para que combinen con la paleta editorial */
+      span[data-baseweb="tag"] {
+        background-color: #EEF2FF !important;
+        color: #1E3A8A !important;
+        border: 1px solid #C7D2FE !important;
+        border-radius: 6px !important;
+        font-weight: 500 !important;
+        font-size: 0.78rem !important;
+      }
+      span[data-baseweb="tag"] span {
+        color: #1E3A8A !important;
       }
 
       /* Cabecera Editorial */
-      .otta-header {
+      .editorial-header {
         background: #FFFFFF;
         border: 1px solid #E2E8F0;
-        border-radius: 16px;
-        padding: 16px 20px;
-        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+        border-radius: 14px;
+        padding: 16px 22px;
         display: flex;
         align-items: center;
         justify-content: space-between;
         flex-wrap: wrap;
-        gap: 12px;
-        margin-bottom: 8px;
+        gap: 14px;
+        margin-bottom: 6px;
       }
-      .otta-avatar-jp {
-        width: 46px;
-        height: 46px;
-        border-radius: 12px;
-        background: #EFF6FF;
-        color: #2563EB;
-        border: 1px solid #BFDBFE;
+      .avatar-jp {
+        width: 44px;
+        height: 44px;
+        border-radius: 10px;
+        background: #1E3A8A;
+        color: #FFFFFF;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-weight: 800;
-        font-size: 1.05rem;
+        font-weight: 700;
+        font-size: 0.98rem;
+        letter-spacing: 0.02em;
         flex-shrink: 0;
       }
-      .otta-pill {
+      .stat-chip {
         display: inline-flex;
         align-items: center;
-        gap: 5px;
         padding: 4px 11px;
         border-radius: 999px;
-        font-size: 0.78rem;
+        font-size: 0.76rem;
         font-weight: 600;
+        background: #F1F5F9;
+        color: #334155;
+        border: 1px solid #E2E8F0;
+      }
+      .stat-chip-active {
+        background: #ECFDF5;
+        color: #065F46;
+        border: 1px solid #A7F3D0;
       }
 
-      /* Tarjeta de vacante estilo Otta con Avatar de Empresa */
-      .otta-card-row {
+      /* Tarjeta de vacante con Monograma limpio (sin iconos apilados) */
+      .card-row {
         display: flex;
         align-items: flex-start;
         gap: 13px;
         margin-bottom: 8px;
       }
-      .company-avatar {
-        width: 44px;
-        height: 44px;
-        border-radius: 11px;
+      .company-monogram {
+        width: 42px;
+        height: 42px;
+        border-radius: 10px;
         display: flex;
-        flex-direction: column;
         align-items: center;
         justify-content: center;
-        font-weight: 800;
-        font-size: 0.76rem;
-        letter-spacing: -0.02em;
+        font-weight: 700;
+        font-size: 0.78rem;
+        letter-spacing: 0.01em;
         flex-shrink: 0;
-        line-height: 1.05;
-      }
-      .company-avatar-icon {
-        font-size: 0.85rem;
-        margin-bottom: 1px;
       }
       .job-title-text {
-        font-size: 1.01rem;
-        font-weight: 750;
+        font-size: 0.98rem;
+        font-weight: 700;
         color: #0F172A;
-        line-height: 1.3;
+        line-height: 1.32;
         margin-bottom: 2px;
       }
       .job-sub-text {
-        font-size: 0.84rem;
+        font-size: 0.83rem;
         color: #64748B;
-        margin-bottom: 7px;
+        margin-bottom: 6px;
       }
 
-      /* Píldoras de metadatos y portales */
-      .meta-badge {
+      /* Píldoras sobrias y combinadas */
+      .pill {
         display: inline-flex;
         align-items: center;
-        gap: 4px;
         padding: 2px 9px;
-        border-radius: 999px;
-        font-size: 0.75rem;
+        border-radius: 6px;
+        font-size: 0.74rem;
         font-weight: 600;
         margin-right: 5px;
-        margin-bottom: 4px;
+        margin-bottom: 3px;
       }
-      .match-pill-high {background: #DCFCE7; color: #15803D; border: 1px solid #BBF7D0;}
-      .match-pill-mid  {background: #FEF9C3; color: #A16207; border: 1px solid #FDE047;}
-      .match-pill-low  {background: #FEE2E2; color: #B91C1C; border: 1px solid #FECACA;}
+      .pill-neutral {background: #F1F5F9; color: #475569; border: 1px solid #E2E8F0;}
+      .pill-indigo  {background: #EEF2FF; color: #1E40AF; border: 1px solid #C7D2FE;}
+      .pill-sage    {background: #ECFDF5; color: #065F46; border: 1px solid #A7F3D0;}
+      .pill-amber   {background: #FEF3C7; color: #92400E; border: 1px solid #FDE68A;}
+      .pill-navy    {background: #1E3A8A; color: #FFFFFF; border: 1px solid #1E3A8A;}
 
       /* Etiquetas de Skills */
       .skill-tag {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        background: #EFF6FF;
-        color: #1E40AF;
-        border: 1px solid #BFDBFE;
+        display: inline-block;
+        background: #F1F5F9;
+        color: #1E293B;
+        border: 1px solid #CBD5E1;
         padding: 3px 10px;
-        border-radius: 8px;
+        border-radius: 6px;
         margin: 2px 5px 3px 0;
-        font-size: 0.8rem;
-        font-weight: 600;
+        font-size: 0.79rem;
+        font-weight: 500;
       }
       .skill-tag-miss {
         background: #FFF1F2;
-        color: #BE123C;
+        color: #9F1239;
         border: 1px solid #FECDD3;
       }
 
-      /* Caja de Elevator Pitch Editorial */
-      .otta-pitch-banner {
-        background: #ECFDF5;
-        border-left: 4px solid #10B981;
-        border-top: 1px solid #A7F3D0;
-        border-right: 1px solid #A7F3D0;
-        border-bottom: 1px solid #A7F3D0;
-        padding: 10px 14px;
-        border-radius: 0 10px 10px 0;
-        color: #065F46;
-        font-size: 0.85rem;
-        font-weight: 600;
-        margin-bottom: 6px;
+      /* Paso de Chain-of-Thought (CoT) */
+      .cot-box {
+        background: #F8FAFC;
+        border: 1px solid #E2E8F0;
+        border-left: 3px solid #1E3A8A;
+        border-radius: 8px;
+        padding: 10px 13px;
+        margin-bottom: 8px;
+        font-size: 0.83rem;
+        color: #334155;
+        line-height: 1.42;
+      }
+      .cot-step-title {
+        font-weight: 700;
+        color: #0F172A;
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        margin-bottom: 2px;
+      }
+      .agency-hint {
+        background: #EEF2FF;
+        color: #1E3A8A;
+        border: 1px solid #C7D2FE;
+        border-radius: 6px;
+        padding: 4px 9px;
+        font-size: 0.76rem;
+        font-weight: 500;
+        margin-top: 4px;
+        display: inline-block;
       }
     </style>
     """,
@@ -215,64 +263,81 @@ def as_list(value):
         return []
 
 
-# ---------------- Generador Inteligente de Avatares e Íconos ----------------
-KNOWN_BRANDS = [
-    (["bcp", "banco de credito", "banco de crédito", "credicorp"], "BCP", "🏦", "#EFF6FF", "#1D4ED8", "#BFDBFE"),
-    (["interbank", "intercorp"], "IBK", "🏦", "#ECFDF5", "#047857", "#A7F3D0"),
-    (["bbva"], "BBVA", "🏦", "#EFF6FF", "#1E3A8A", "#93C5FD"),
-    (["scotiabank", "scotia"], "SCT", "🏦", "#FFF1F2", "#BE123C", "#FECDD3"),
-    (["banbif"], "BIF", "🏦", "#F0F9FF", "#0369A1", "#BAE6FD"),
-    (["pichincha"], "PCH", "🏦", "#FEFCE8", "#A16207", "#FEF08A"),
-    (["alicorp"], "ALI", "🏭", "#FFF1F2", "#E11D48", "#FECDD3"),
-    (["sonda"], "SND", "💻", "#EEF2FF", "#4338CA", "#C7D2FE"),
-    (["ntt data", "nttdata", "everis"], "NTT", "💻", "#EFF6FF", "#0284C7", "#BAE6FD"),
-    (["indra", "minsait"], "IND", "💻", "#F5F3FF", "#6D28D9", "#DDD6FE"),
-    (["globant"], "GLB", "🚀", "#F0FDF4", "#15803D", "#BBF7D0"),
-    (["stefanini"], "STF", "💻", "#EEF2FF", "#3730A3", "#C7D2FE"),
-    (["rimac", "rímac"], "RIM", "🛡️", "#FFF1F2", "#BE123C", "#FECDD3"),
-    (["pacifico", "pacífico"], "PAC", "🛡️", "#F0F9FF", "#0284C7", "#BAE6FD"),
-    (["mapfre"], "MAP", "🛡️", "#FEF2F2", "#DC2626", "#FECACA"),
-    (["claro", "america movil"], "CLR", "📡", "#FEF2F2", "#DC2626", "#FECACA"),
-    (["entel"], "ENT", "📡", "#EFF6FF", "#1D4ED8", "#BFDBFE"),
-    (["telefonica", "telefónica", "movistar"], "MOV", "📡", "#F0F9FF", "#0369A1", "#BAE6FD"),
-    (["ferreyros", "ferreycorp"], "FER", "⚙️", "#FEFCE8", "#B45309", "#FDE68A"),
-    (["antamina", "minsur", "buenaventura", "las bambas", "cerro verde"], "MIN", "⛏️", "#FFFBEB", "#B45309", "#FDE68A"),
-    (["sunat", "minedu", "ministerio", "osinergmin", "indecopi", "bcrp", "contraloria"], "GOB", "🏛️", "#F1F5F9", "#334155", "#CBD5E1"),
-    (["utp", "universidad", "pucp", "upn", "upc"], "EDU", "🎓", "#F5F3FF", "#6D28D9", "#DDD6FE"),
+def parse_reasoning(raw_reasoning, job: dict) -> dict:
+    """Devuelve el diccionario con los 5 pasos de Chain-of-Thought (desde BD o reconstruido)."""
+    if isinstance(raw_reasoning, dict):
+        return raw_reasoning
+    if isinstance(raw_reasoning, str) and raw_reasoning.strip():
+        try:
+            return json.loads(raw_reasoning)
+        except Exception:
+            pass
+    # Si la vacante fue evaluada antes de migrarse a CoT, construir resumen estructurado limpio
+    matching = as_list(job.get("matching_skills"))
+    missing = as_list(job.get("missing_skills"))
+    is_pre = bool(job.get("is_pre_professional"))
+    return {
+        "academic_eligibility": (
+            "Oferta compatible con estudiante universitario de 8vo ciclo (preprofesional)."
+            if is_pre else "La convocatoria exige condición de egresado o bachiller."
+        ),
+        "experience_requirements": (
+            "Condiciones acordes a convenio de prácticas preprofesionales."
+            if not job.get("is_unrealistic_or_smoke")
+            else "Se detectaron requisitos desproporcionados o ausencia de subvención."
+        ),
+        "tech_stack_overlap": (
+            f"Coincidencias con el perfil: {', '.join(matching)}."
+            if matching else "Sin coincidencias técnicas directas detectadas en el anuncio."
+        ),
+        "gaps_and_risks": (
+            f"Requisitos adicionales mencionados: {', '.join(missing)}."
+            if missing else "No se identificaron brechas tecnológicas críticas."
+        ),
+        "score_rationale": (
+            f"Afinidad técnica {float(job.get('technical_match_score') or 0) * 100:.0f}%, "
+            f"modalidad {job.get('modality')} ({float(job.get('modality_score') or 0) * 100:.0f}%) "
+            f"y ubicación ({float(job.get('location_score') or 0) * 100:.0f}%)."
+        ),
+    }
+
+
+# ---------------- Monogramas Sobrios y Armónicos (Sin saturación de emojis) ----------------
+MONOCHROME_PALETTES = [
+    ("#EEF2FF", "#1E3A8A", "#C7D2FE"),  # Índigo editorial
+    ("#ECFDF5", "#065F46", "#A7F3D0"),  # Salvia
+    ("#F1F5F9", "#334155", "#CBD5E1"),  # Pizarra
+    ("#F0F9FF", "#075985", "#BAE6FD"),  # Azul acero
+    ("#FAF5FF", "#5B21B6", "#DDD6FE"),  # Lavanda sobrio
 ]
 
-FALLBACK_PALETTES = [
-    ("#EFF6FF", "#1D4ED8", "#BFDBFE"),  # Azul cobalto
-    ("#ECFDF5", "#047857", "#A7F3D0"),  # Esmeralda
-    ("#F5F3FF", "#6D28D9", "#DDD6FE"),  # Violeta
-    ("#FFFBEB", "#B45309", "#FDE68A"),  # Ámbar
-    ("#F0F9FF", "#0369A1", "#BAE6FD"),  # Cian oscuro
-    ("#FDF2F8", "#BE185D", "#FBCFE8"),  # Rosa editorial
-]
 
-
-def get_company_avatar_html(company: str) -> str:
-    """Genera un avatar cuadrado estilo Otta con siglas e ícono según la empresa."""
-    clean = (company or "Empresa").strip()
-    low = clean.lower()
-
-    if "confidencial" in low or "no especificado" in low:
+def get_company_monogram_html(company: str, title: str = "", raw_description: str = "") -> str:
+    """
+    Genera un monograma tipográfico limpio de 2 a 4 letras.
+    Si es una agencia (Manpower, Adecco, etc.) y se detectó la empresa cliente real (ej. BCP),
+    muestra las siglas del cliente real.
+    """
+    employer = resolve_employer(company or "", title or "", raw_description or "")
+    if employer.brand is not None:
+        b = employer.brand
         return (
-            "<div class='company-avatar' style='background:#F1F5F9;color:#475569;border:1px solid #CBD5E1;' "
-            "title='Empresa en reserva'>"
-            "<span class='company-avatar-icon'>🔒</span><span>EMP</span></div>"
+            f"<div class='company-monogram' style='background:{b.tint};color:{b.color};border:1px solid #CBD5E1;' "
+            f"title='{html.escape(b.display)}'>{html.escape(b.code)}</div>"
         )
 
-    for keywords, code, icon, bg, fg, border in KNOWN_BRANDS:
-        if any(k in low for k in keywords):
-            return (
-                f"<div class='company-avatar' style='background:{bg};color:{fg};border:1px solid {border};' "
-                f"title='{html.escape(clean)}'>"
-                f"<span class='company-avatar-icon'>{icon}</span><span>{code}</span></div>"
-            )
+    clean = (company or "Empresa").strip()
+    low = clean.lower()
+    if "confidencial" in low or "no especificado" in low:
+        return (
+            "<div class='company-monogram' style='background:#F1F5F9;color:#475569;border:1px solid #CBD5E1;' "
+            "title='Empresa en reserva'>CONF</div>"
+        )
 
-    # Monograma automático de 2-3 letras
-    words = [w for w in re.split(r"[\s\-\.,()]+", clean) if len(w) > 1 and w.lower() not in ("de", "del", "la", "el", "los", "las", "sac", "s.a.c", "peru", "perú", "s.a", "sa")]
+    words = [
+        w for w in re.split(r"[\s\-\.,()]+", clean)
+        if len(w) > 1 and w.lower() not in ("de", "del", "la", "el", "los", "las", "sac", "peru", "perú", "sa", "grupo")
+    ]
     if len(words) >= 2:
         initials = (words[0][0] + words[1][0] + (words[2][0] if len(words) > 2 else "")).upper()
     elif words:
@@ -280,73 +345,49 @@ def get_company_avatar_html(company: str) -> str:
     else:
         initials = "EMP"
 
-    idx = int(hashlib.md5(low.encode("utf-8")).hexdigest()[:4], 16) % len(FALLBACK_PALETTES)
-    bg, fg, border = FALLBACK_PALETTES[idx]
+    idx = int(hashlib.md5(low.encode("utf-8")).hexdigest()[:4], 16) % len(MONOCHROME_PALETTES)
+    bg, fg, border = MONOCHROME_PALETTES[idx]
     return (
-        f"<div class='company-avatar' style='background:{bg};color:{fg};border:1px solid {border};' "
-        f"title='{html.escape(clean)}'>"
-        f"<span class='company-avatar-icon'>🏢</span><span>{html.escape(initials)}</span></div>"
+        f"<div class='company-monogram' style='background:{bg};color:{fg};border:1px solid {border};' "
+        f"title='{html.escape(clean)}'>{html.escape(initials)}</div>"
     )
 
 
-def get_role_category_icon(title: str) -> str:
-    """Devuelve un ícono diferencial según la especialidad del puesto."""
-    low = (title or "").lower()
-    if any(k in low for k in ("inteligencia artificial", "ia", "ai", "automatiz", "rpa", "machine learning")):
-        return "🤖"
-    if any(k in low for k in ("datos", "data", "bi", "business intelligence", "analítica", "analytics", "power bi", "indicadores")):
-        return "📊"
-    if any(k in low for k in ("software", "desarrollo", "developer", "backend", "frontend", "fullstack", "programador", "web", "java", "python")):
-        return "💻"
-    if any(k in low for k in ("seguridad", "ciberseguridad", "redes", "infraestructura", "cloud", "soporte")):
-        return "🛡️"
-    if any(k in low for k in ("comercial", "finanzas", "riesgos", "operaciones", "procesos", "proyectos")):
-        return "📈"
-    return "🖥️"
-
-
-def get_portal_badge_html(source: str) -> str:
-    """Genera una píldora con ícono propio por cada portal de empleo."""
-    src = (source or "").lower()
-    portal_styles = {
-        "bumeran": ("🅱️ Bumeran", "#FFF1F2", "#BE123C", "#FECDD3"),
-        "linkedin": ("💼 LinkedIn", "#EFF6FF", "#0A66C2", "#BFDBFE"),
-        "practicas_pe": ("🎓 Practicas.pe", "#F0F9FF", "#0369A1", "#BAE6FD"),
-        "computrabajo": ("🧭 CompuTrabajo", "#FFFBEB", "#B45309", "#FDE68A"),
-        "cvmatcher": ("⚡ CVMatcher", "#F5F3FF", "#6D28D9", "#DDD6FE"),
-    }
-    label, bg, fg, border = portal_styles.get(src, (f"🌐 {src}", "#F1F5F9", "#475569", "#CBD5E1"))
-    return f"<span class='meta-badge' style='background:{bg};color:{fg};border:1px solid {border};'>{label}</span>"
-
-
-def get_modality_badge_html(modality: str) -> str:
-    """Genera una píldora con ícono claro según la modalidad."""
+def get_modality_pill_html(modality: str) -> str:
     low = (modality or "").lower()
     if "híbrido" in low or "hibrido" in low:
-        return "<span class='meta-badge' style='background:#DCFCE7;color:#15803D;border:1px solid #86EFAC;'>🏢🏠 Híbrido</span>"
+        return "<span class='pill pill-sage'>Híbrido</span>"
     if "presencial" in low:
-        return "<span class='meta-badge' style='background:#DBEAFE;color:#1E40AF;border:1px solid #93C5FD;'>🏢 Presencial</span>"
+        return "<span class='pill pill-indigo'>Presencial</span>"
     if "remoto" in low:
-        return "<span class='meta-badge' style='background:#F3E8FF;color:#6B21A8;border:1px solid #D8B4FE;'>🏠 Remoto</span>"
-    return "<span class='meta-badge' style='background:#F1F5F9;color:#475569;border:1px solid #CBD5E1;'>📍 Por definir</span>"
+        return "<span class='pill pill-neutral'>Remoto</span>"
+    return "<span class='pill pill-neutral'>Modalidad no especificada</span>"
+
+
+def get_portal_pill_html(source: str) -> str:
+    names = {
+        "bumeran": "Bumeran",
+        "linkedin": "LinkedIn",
+        "practicas_pe": "Practicas.pe",
+        "computrabajo": "CompuTrabajo",
+        "cvmatcher": "CVMatcher",
+    }
+    label = names.get((source or "").lower(), source or "Portal")
+    return f"<span class='pill pill-neutral'>{html.escape(label)}</span>"
 
 
 def get_score_pill_html(score: float) -> str:
     if score >= 75:
-        cls = "match-pill-high"
-        icon = "🔥"
+        cls = "pill-sage"
     elif score >= 60:
-        cls = "match-pill-mid"
-        icon = "✨"
+        cls = "pill-indigo"
     else:
-        cls = "match-pill-low"
-        icon = "•"
-    return f"<span class='meta-badge {cls}' style='font-size:0.8rem;padding:3px 10px;'>{icon} {score:.0f}% Match</span>"
+        cls = "pill-neutral"
+    return f"<span class='pill {cls}' style='font-size:0.78rem;padding:3px 10px;'>{score:.0f}% compatibilidad</span>"
 
 
 # ---------------- Gestión de Estado y Memoria Persistente ----------------
 def refresh_jobs_in_state():
-    """Carga todas las vacantes desde SQLite + crm_memory.json hacia st.session_state."""
     st.session_state["jobs_data"] = DatabaseManager().get_all_evaluated_jobs()
 
 
@@ -362,12 +403,11 @@ if "crm_quick_tab" not in st.session_state:
 if "page_number" not in st.session_state:
     st.session_state["page_number"] = 0
 
+if "search_query_text" not in st.session_state:
+    st.session_state["search_query_text"] = ""
+
 
 def update_job_crm(job_id: int, new_status: str, notes: str | None = None):
-    """
-    Actualiza el estado CRM ('⭐ Favorita', '🚀 Postulado', etc.) y notas tanto en SQLite + crm_memory.json
-    como inmediatamente en la memoria en vivo de la sesión, manteniendo seleccionada la vacante.
-    """
     db = DatabaseManager()
     db.update_application_status(int(job_id), new_status, notes=notes)
 
@@ -388,33 +428,33 @@ fav_total = sum(1 for j in all_loaded_jobs if j.get("application_status") == "�
 applied_total = sum(1 for j in all_loaded_jobs if j.get("application_status") in ("🚀 Postulado", "🎤 En entrevista"))
 last_eval_str = max((j.get("evaluated_at") or "" for j in all_loaded_jobs), default="")[:16] or "—"
 
-# ---------------- Cabecera Editorial (Estilo Otta B) ----------------
+# ---------------- Cabecera Editorial Limpia ----------------
 hdr_col1, hdr_col2, hdr_col3 = st.columns([3.5, 1.05, 1.05], vertical_alignment="center")
 
 with hdr_col1:
-    ai_pill = (
-        f"<span class='otta-pill' style='background:#ECFDF5;color:#047857;border:1px solid #A7F3D0;'>🟢 Gemini Activo</span>"
+    ai_chip = (
+        "<span class='stat-chip stat-chip-active'>LangGraph + Gemini CoT activo</span>"
         if active_api_key
-        else "<span class='otta-pill' style='background:#FEF9C3;color:#854D0E;border:1px solid #FDE047;'>🟡 Modo Heurístico</span>"
+        else "<span class='stat-chip'>LangGraph · Modo Heurístico</span>"
     )
     st.markdown(
         f"""
-        <div class='otta-header'>
+        <div class='editorial-header'>
           <div style='display:flex;align-items:center;gap:14px;'>
-            <div class='otta-avatar-jp'>JP</div>
+            <div class='avatar-jp'>JP</div>
             <div>
-              <div style='font-size:1.18rem;font-weight:800;color:#0F172A;line-height:1.2;'>
+              <div style='font-size:1.12rem;font-weight:800;color:#0F172A;line-height:1.25;'>
                 Radar de Prácticas · {html.escape(CANDIDATE_PROFILE['name'])}
               </div>
-              <div style='font-size:0.83rem;color:#64748B;margin-top:2px;'>
-                🎓 Ing. de Sistemas e Informática (UTP · 8vo ciclo) &nbsp;·&nbsp; 📍 Base: Ate / La Molina / San Isidro &nbsp;·&nbsp; 🕒 Últ. act.: {last_eval_str}
+              <div style='font-size:0.82rem;color:#64748B;margin-top:2px;'>
+                Ingeniería de Sistemas e Informática (UTP · 8vo ciclo) &nbsp;·&nbsp; Base: Ate / La Molina / San Isidro &nbsp;·&nbsp; Últ. act.: {last_eval_str}
               </div>
             </div>
           </div>
           <div style='display:flex;gap:8px;flex-wrap:wrap;'>
-            <span class='otta-pill' style='background:#FEF9C3;color:#854D0E;border:1px solid #FDE047;'>⭐ {fav_total} Favoritas</span>
-            <span class='otta-pill' style='background:#EFF6FF;color:#1D4ED8;border:1px solid #BFDBFE;'>🚀 {applied_total} Postuladas</span>
-            {ai_pill}
+            <span class='stat-chip'>Destacadas: {fav_total}</span>
+            <span class='stat-chip'>Postuladas: {applied_total}</span>
+            {ai_chip}
           </div>
         </div>
         """,
@@ -422,17 +462,17 @@ with hdr_col1:
     )
 
 with hdr_col2:
-    with st.popover("🔎 Buscar Vacantes", use_container_width=True):
-        st.markdown("#### 🌐 Escaneo Multi-Portal")
+    with st.popover("Buscar vacantes", use_container_width=True):
+        st.markdown("#### Escaneo Multi-Portal")
         selected_portals = st.multiselect(
             "Portales a escanear",
             options=all_adapter_names,
             default=all_adapter_names,
         )
         limit = st.slider("Vacantes por portal", 3, 25, 10)
-        reeval = st.checkbox("Re-evaluar vacantes guardadas", value=False)
+        reeval = st.checkbox("Re-evaluar vacantes guardadas con LangGraph + CoT", value=False)
 
-        if st.button("🚀 Iniciar búsqueda ahora", type="primary", use_container_width=True):
+        if st.button("Iniciar búsqueda ahora", type="primary", use_container_width=True):
             progress_bar = st.progress(0.0, text="Iniciando escaneo...")
 
             def _update_progress(msg: str, pct: float):
@@ -447,29 +487,29 @@ with hdr_col2:
             )
             refresh_jobs_in_state()
             st.success(
-                f"¡Listo! {summary['extracted']} extraídas ({summary['new']} nuevas) · "
+                f"Listo: {summary['extracted']} extraídas ({summary['new']} nuevas) · "
                 f"{summary['recommended']} recomendadas · Motor: {summary['ai_engine']}"
             )
             st.rerun()
 
 with hdr_col3:
-    with st.popover("⚙️ Motor IA y Memoria", use_container_width=True):
-        st.markdown("#### 🤖 Clave de Google Gemini")
+    with st.popover("Configuración IA", use_container_width=True):
+        st.markdown("#### Motor LangGraph + Gemini CoT")
         if active_api_key:
-            st.success(f"Clave activa ({JobMatcherAI.MODEL_ID})", icon="✅")
+            st.success(f"Clave activa ({JobMatcherAI.MODEL_ID})")
         else:
-            st.warning("Sin clave API (usando motor heurístico)", icon="⚠️")
+            st.warning("Sin clave API (usando evaluación heurística)")
 
         st.caption(
-            "💡 **Para no volver a pegarla nunca más en Streamlit Cloud:** ve a *Manage app → Settings → Secrets* "
-            "y añade:\n`GEMINI_API_KEY = \"tu_clave\"`"
+            "Para que Streamlit Cloud recuerde tu clave permanentemente, ve a "
+            "**Manage app → Settings → Secrets** y añade:\n`GEMINI_API_KEY = \"tu_clave\"`"
         )
         key_input = st.text_input(
             "O pega tu GEMINI_API_KEY aquí:",
             type="password",
             placeholder="AIzaSy...",
         )
-        if st.button("💾 Guardar clave", use_container_width=True):
+        if st.button("Guardar clave", use_container_width=True):
             if key_input.strip():
                 clean_k = key_input.strip()
                 st.session_state["GEMINI_API_KEY"] = clean_k
@@ -478,21 +518,20 @@ with hdr_col3:
                     ENV_PATH.write_text(f"GEMINI_API_KEY={clean_k}\n", encoding="utf-8")
                 except Exception:
                     pass
-                st.success("¡Clave guardada en memoria!")
+                st.success("Clave guardada en memoria.")
                 st.rerun()
 
         st.divider()
         st.caption(
-            "☁️ **Auto-Scan Cloud activo:** El radar busca vacantes automáticamente a las **7:00 AM y 2:00 PM** "
-            "y mantiene viva la app 24/7."
+            "El escáner automático en la nube actualiza el catálogo a las 7:00 AM y 2:00 PM (hora Perú)."
         )
 
 if not all_loaded_jobs:
-    st.info("Aún no hay vacantes registradas. Haz clic en **🔎 Buscar Vacantes** arriba a la derecha.")
+    st.info("Aún no hay vacantes registradas. Haz clic en **Buscar vacantes** arriba a la derecha.")
     st.stop()
 
 
-# ---------------- Workspace Reactivo (Filtros Editorial + Master-Detail con Íconos) ----------------
+# ---------------- Workspace Reactivo (Buscador Inteligente + Master-Detail) ----------------
 @st.fragment
 def render_interactive_workspace():
     all_jobs = st.session_state.get("jobs_data", [])
@@ -511,16 +550,16 @@ def render_interactive_workspace():
         + counts["🎤 En entrevista"]
     )
 
-    # 2. Barra de Filtros Horizontales Estilo Otta (Arriba)
+    # 2. Barra de Filtros Horizontales Limpia (Sin exceso de iconos)
     with st.container(border=True):
         tab_options = {
-            "🌐 Activas": f"🌐 Todas Activas ({active_count})",
-            "📋 Por postular": f"📋 Por postular ({counts['📋 Por postular']})",
-            "⭐ Favorita": f"⭐ Destacadas ({counts['⭐ Favorita']})",
-            "🚀 Postulado": f"🚀 Postuladas ({counts['🚀 Postulado']})",
-            "🎤 En entrevista": f"🎤 En entrevista ({counts['🎤 En entrevista']})",
-            "❌ Descartada por mí": f"❌ Descartadas ({counts['❌ Descartada por mí']})",
-            "📂 Todas": f"📂 Catálogo ({len(all_jobs)})",
+            "🌐 Activas": f"Activas ({active_count})",
+            "📋 Por postular": f"Por postular ({counts['📋 Por postular']})",
+            "⭐ Favorita": f"Destacadas ({counts['⭐ Favorita']})",
+            "🚀 Postulado": f"Postuladas ({counts['🚀 Postulado']})",
+            "🎤 En entrevista": f"En entrevista ({counts['🎤 En entrevista']})",
+            "❌ Descartada por mí": f"Descartadas ({counts['❌ Descartada por mí']})",
+            "📂 Todas": f"Todas ({len(all_jobs)})",
         }
         reverse_tab_map = {v: k for k, v in tab_options.items()}
         current_tab_key = st.session_state.get("crm_quick_tab", "🌐 Activas")
@@ -538,38 +577,42 @@ def render_interactive_workspace():
             current_tab_key = st.session_state["crm_quick_tab"]
             st.session_state["page_number"] = 0
 
-        f_col1, f_col2, f_col3, f_col4, f_col5 = st.columns([2.2, 1.45, 1.45, 1.05, 1.45])
+        f_col1, f_col2, f_col3, f_col4, f_col5 = st.columns([2.25, 1.4, 1.4, 1.05, 1.4])
         with f_col1:
             query = st.text_input(
-                "🔍 Buscar por puesto, empresa, tecnología o distrito",
-                placeholder="Ej: Python, BCP, Interbank, Power BI, San Isidro...",
+                "Buscar por empresa (ej. BCP, Movistar), puesto, tecnología o distrito",
+                value=st.session_state.get("search_query_text", ""),
+                placeholder="Ej: BCP, Python, Power BI, Interbank, San Isidro...",
             )
+            if query != st.session_state.get("search_query_text", ""):
+                st.session_state["search_query_text"] = query
+                st.session_state["page_number"] = 0
         with f_col2:
             modalities = st.multiselect(
-                "🏢 Modalidad",
+                "Modalidad",
                 options=list(MODALITY_ORDER.keys()),
                 default=list(MODALITY_ORDER.keys()),
             )
         with f_col3:
             source_options = ["practicas_pe", "bumeran", "linkedin", "computrabajo", "cvmatcher"]
             selected_sources = st.multiselect(
-                "🌐 Portales",
+                "Portales",
                 options=source_options,
                 default=source_options,
             )
         with f_col4:
-            min_score = st.slider("🎯 Match mín. (%)", 0, 100, 50)
+            min_score = st.slider("Compatibilidad mín.", 0, 100, 50)
         with f_col5:
             order = st.selectbox(
-                "↕️ Ordenar por",
+                "Ordenar por",
                 options=[
                     "Modalidad (Híbrido > Presencial > Remoto) + Match",
-                    "Mayor % de Match",
+                    "Mayor % de compatibilidad",
                 ],
             )
-            show_discarded_ai = st.checkbox("Mostrar descartadas por IA (egresados/humo)", value=False)
+            show_discarded_ai = st.checkbox("Incluir descartadas por IA (egresados)", value=False)
 
-    # 3. Aplicar filtrado
+    # 3. Filtrado base por pestaña, modalidad, portal y score
     if current_tab_key == "🌐 Activas":
         allowed_statuses = {"📋 Por postular", "⭐ Favorita", "🚀 Postulado", "🎤 En entrevista"}
     elif current_tab_key == "📂 Todas":
@@ -577,33 +620,65 @@ def render_interactive_workspace():
     else:
         allowed_statuses = {current_tab_key}
 
-    filtered = []
+    # Si el usuario busca una empresa específica (ej. "bcp"), no ocultar las de agencias por el filtro de score
+    has_active_query = bool((query or "").strip())
+
+    base_filtered = []
     for j in all_jobs:
         job_status = j.get("application_status") or "📋 Por postular"
         if job_status not in allowed_statuses:
             continue
         is_user_saved = job_status in ("⭐ Favorita", "🚀 Postulado", "🎤 En entrevista")
-        if not show_discarded_ai and not is_user_saved and not is_recommended(j, 0):
+        if not show_discarded_ai and not is_user_saved and not has_active_query and not is_recommended(j, 0):
             continue
-        if float(j["final_ranking_score"]) < min_score and not is_user_saved:
+        if float(j["final_ranking_score"]) < min_score and not is_user_saved and not has_active_query:
             continue
         if modalities and j["modality"] not in modalities:
             continue
         if selected_sources and j["source"] not in selected_sources:
             continue
-        if query:
-            haystack = f"{j['title']} {j['company']} {j['location']} {j.get('matching_skills', '')}".lower()
-            if query.lower().strip() not in haystack:
-                continue
-        filtered.append(j)
+        base_filtered.append(j)
 
-    if order.startswith("Modalidad"):
-        filtered = sort_by_modality_then_score(filtered)
-    else:
-        filtered = sorted(filtered, key=lambda j: -float(j["final_ranking_score"]))
+    # 4. Buscador Inteligente (Resolución de Agencias Manpower/Adecco -> BCP, Sinónimos y Corrección Ortográfica)
+    search_outcome = search_jobs(base_filtered, query)
+    filtered = search_outcome.jobs
+
+    if not has_active_query:
+        if order.startswith("Modalidad"):
+            filtered = sort_by_modality_then_score(filtered)
+        else:
+            filtered = sorted(filtered, key=lambda j: -float(j["final_ranking_score"]))
+
+    # Mostrar avisos inteligentes del buscador (corrección ortográfica, agencias detectadas y sugerencias clicables)
+    if has_active_query:
+        info_parts = []
+        if search_outcome.corrected_query:
+            info_parts.append(
+                f"Se interpretó **«{html.escape(query)}»** como **«{html.escape(search_outcome.corrected_query)}»**."
+            )
+        if search_outcome.inferred_brand and search_outcome.agency_matches_count > 0:
+            info_parts.append(
+                f"Incluye **{search_outcome.agency_matches_count}** convocatoria(s) publicada(s) por agencias de reclutamiento "
+                f"(como Manpower / consultoras) vinculadas a **{search_outcome.inferred_brand.display}** o su sector."
+            )
+        if info_parts:
+            st.caption(" · ".join(info_parts))
+
+        suggestions_to_show = search_outcome.did_you_mean or search_outcome.related_suggestions
+        if suggestions_to_show:
+            s_cols = st.columns([1.2] + [1] * len(suggestions_to_show[:4]) + [3])
+            s_cols[0].caption("Sugerencias:")
+            for idx_s, sug in enumerate(suggestions_to_show[:4]):
+                if s_cols[idx_s + 1].button(sug, key=f"sug_btn_{sug}", use_container_width=True):
+                    st.session_state["search_query_text"] = sug
+                    st.session_state["page_number"] = 0
+                    st.rerun(scope="fragment")
 
     if not filtered:
-        st.warning("No se encontraron vacantes con esos filtros. Prueba reduciendo el Match mínimo o cambiando de pestaña CRM.")
+        st.warning("No se encontraron vacantes con esos criterios.")
+        if st.button("Limpiar búsqueda", key="clear_search_empty"):
+            st.session_state["search_query_text"] = ""
+            st.rerun(scope="fragment")
         return
 
     # Garantizar que exista una vacante seleccionada válida en memoria
@@ -614,7 +689,7 @@ def render_interactive_workspace():
     active_job_id = int(st.session_state["selected_job_id"])
     active_job = next((j for j in filtered if int(j["id"]) == active_job_id), filtered[0])
 
-    # 4. Vista Dividida Estilo Otta (Izquierda: Tarjetas con Avatar e Íconos | Derecha: Ficha Editorial)
+    # 5. Vista Dividida (Izquierda: Tarjetas Limpias | Derecha: Análisis CoT y Seguimiento)
     list_col, detail_col = st.columns([1.22, 1.18], gap="large")
 
     with list_col:
@@ -628,18 +703,18 @@ def render_interactive_workspace():
         with hdr_l:
             hybrid_cnt = sum(1 for j in filtered if j["modality"] == "Híbrido")
             st.markdown(
-                f"##### 🎯 {len(filtered)} Convocatorias &nbsp;<span style='font-size:0.8rem;font-weight:500;color:#64748B;'>"
+                f"##### {len(filtered)} convocatorias encontradas &nbsp;<span style='font-size:0.8rem;font-weight:500;color:#64748B;'>"
                 f"({hybrid_cnt} híbridas)</span>",
                 unsafe_allow_html=True,
             )
         with hdr_r:
             if total_pages > 1:
                 p_prev, p_info, p_next = st.columns([1, 1.5, 1], vertical_alignment="center")
-                if p_prev.button("◀", disabled=(cur_page == 0), key="pg_prev", use_container_width=True):
+                if p_prev.button("‹", disabled=(cur_page == 0), key="pg_prev", use_container_width=True):
                     st.session_state["page_number"] = cur_page - 1
                     st.rerun(scope="fragment")
                 p_info.caption(f"Pág. {cur_page + 1}/{total_pages}")
-                if p_next.button("▶", disabled=(cur_page >= total_pages - 1), key="pg_next", use_container_width=True):
+                if p_next.button("›", disabled=(cur_page >= total_pages - 1), key="pg_next", use_container_width=True):
                     st.session_state["page_number"] = cur_page + 1
                     st.rerun(scope="fragment")
 
@@ -651,52 +726,58 @@ def render_interactive_workspace():
             is_applied = j_status == "🚀 Postulado"
             score_val = float(j["final_ranking_score"])
 
-            avatar_html = get_company_avatar_html(j["company"])
-            role_icon = get_role_category_icon(j["title"])
-            mod_badge = get_modality_badge_html(j["modality"])
-            portal_badge = get_portal_badge_html(j["source"])
+            monogram_html = get_company_monogram_html(
+                j["company"], j.get("title", ""), j.get("raw_description", "")
+            )
+            mod_pill = get_modality_pill_html(j["modality"])
+            portal_pill = get_portal_pill_html(j["source"])
             score_pill = get_score_pill_html(score_val)
             salary_str = html.escape(j.get("salary") or "Sueldo de ley")
 
-            status_badge = ""
+            status_pill = ""
             if is_fav:
-                status_badge = "<span class='meta-badge' style='background:#FEF9C3;color:#854D0E;border:1px solid #FDE047;'>⭐ Destacada</span>"
+                status_pill = "<span class='pill pill-amber'>Destacada</span>"
             elif is_applied:
-                status_badge = "<span class='meta-badge' style='background:#EFF6FF;color:#1D4ED8;border:1px solid #BFDBFE;'>🚀 Postulado</span>"
+                status_pill = "<span class='pill pill-indigo'>Postulado</span>"
             elif j_status != "📋 Por postular":
-                status_badge = f"<span class='meta-badge' style='background:#F1F5F9;color:#334155;border:1px solid #CBD5E1;'>{html.escape(j_status)}</span>"
+                clean_st = j_status.encode("ascii", "ignore").decode("ascii").strip() or j_status
+                status_pill = f"<span class='pill pill-neutral'>{html.escape(clean_st)}</span>"
 
-            active_indicator = (
-                "<span class='meta-badge' style='background:#2563EB;color:#FFFFFF;'>👉 Viendo ahora</span>"
-                if is_selected
+            active_pill = "<span class='pill pill-navy'>Seleccionada</span>" if is_selected else ""
+
+            search_note = j.get("_search_note")
+            note_html = (
+                f"<div class='agency-hint'>{html.escape(search_note)}</div>"
+                if search_note
                 else ""
             )
 
             with st.container(border=True):
                 st.markdown(
                     f"""
-                    <div class='otta-card-row'>
-                      {avatar_html}
+                    <div class='card-row'>
+                      {monogram_html}
                       <div style='flex:1;min-width:0;'>
                         <div style='display:flex;justify-content:space-between;align-items:flex-start;gap:8px;'>
-                          <div class='job-title-text'>{role_icon} {html.escape(j['title'])}</div>
+                          <div class='job-title-text'>{html.escape(j['title'])}</div>
                           <div style='flex-shrink:0;'>{score_pill}</div>
                         </div>
                         <div class='job-sub-text'>
-                          <b>{html.escape(j['company'])}</b> &nbsp;·&nbsp; 📍 {html.escape(j['location'])} &nbsp;·&nbsp; 💰 {salary_str}
+                          <b>{html.escape(j['company'])}</b> &nbsp;·&nbsp; {html.escape(j['location'])} &nbsp;·&nbsp; {salary_str}
                         </div>
                         <div>
-                          {active_indicator}{status_badge}{mod_badge}{portal_badge}
+                          {active_pill}{status_pill}{mod_pill}{portal_pill}
                         </div>
+                        {note_html}
                       </div>
                     </div>
                     """,
                     unsafe_allow_html=True,
                 )
 
-                act1, act2, act3, act4 = st.columns([1.75, 1.15, 1.2, 1.0])
+                act1, act2, act3, act4 = st.columns([1.65, 1.15, 1.25, 1.0])
                 if act1.button(
-                    "👁️ Viendo Detalle" if is_selected else "📄 Ver Pitch y Detalle",
+                    "Viendo análisis" if is_selected else "Ver análisis",
                     key=f"sel_{jid}",
                     type="primary" if is_selected else "secondary",
                     use_container_width=True,
@@ -705,7 +786,7 @@ def render_interactive_workspace():
                     st.rerun(scope="fragment")
 
                 if act2.button(
-                    "⭐ Favorita" if is_fav else "☆ Destacar",
+                    "★ Destacada" if is_fav else "Destacar",
                     key=f"fav_{jid}",
                     type="primary" if is_fav else "secondary",
                     use_container_width=True,
@@ -716,7 +797,7 @@ def render_interactive_workspace():
                     st.rerun(scope="fragment")
 
                 if act3.button(
-                    "🚀 Postulado" if is_applied else "✓ Postularé",
+                    "✓ Postulado" if is_applied else "Postularé",
                     key=f"app_{jid}",
                     type="primary" if is_applied else "secondary",
                     use_container_width=True,
@@ -726,22 +807,25 @@ def render_interactive_workspace():
                     st.toast(f"{j['company']}: {new_st}")
                     st.rerun(scope="fragment")
 
-                act4.link_button("🔗 Portal ↗", j["url"], use_container_width=True)
+                act4.link_button("Abrir ↗", j["url"], use_container_width=True)
 
-    # 5. Panel Derecho: Ficha Editorial de la Vacante Seleccionada
+    # 6. Panel Derecho: Análisis Chain-of-Thought (LangGraph) y Seguimiento (Sin Pitch)
     with detail_col:
         with st.container(border=True):
             job = active_job
             cur_status = job.get("application_status") or "📋 Por postular"
-            det_avatar = get_company_avatar_html(job["company"])
-            det_role_icon = get_role_category_icon(job["title"])
+            det_monogram = get_company_monogram_html(
+                job["company"], job.get("title", ""), job.get("raw_description", "")
+            )
             det_score_pill = get_score_pill_html(float(job["final_ranking_score"]))
-            det_mod_badge = get_modality_badge_html(job["modality"])
-            det_portal_badge = get_portal_badge_html(job["source"])
+            det_mod_pill = get_modality_pill_html(job["modality"])
+            det_portal_pill = get_portal_pill_html(job["source"])
+            engine_used = job.get("engine") or "heuristic"
+            engine_label = "Gemini 3.8 Flash · CoT" if engine_used == "gemini-cot" else "LangGraph · Heurístico"
 
-            # Selector rápido en la parte superior del panel derecho
+            # Selector rápido superior
             id_to_label = {
-                int(item["id"]): f"{idx + 1}. {get_role_category_icon(item['title'])} {item['title']} — {item['company']} ({float(item['final_ranking_score']):.0f}%)"
+                int(item["id"]): f"{idx + 1}. {item['title']} — {item['company']} ({float(item['final_ranking_score']):.0f}%)"
                 for idx, item in enumerate(filtered)
             }
             chosen_id = st.selectbox(
@@ -755,24 +839,22 @@ def render_interactive_workspace():
                 st.session_state["selected_job_id"] = int(chosen_id)
                 st.rerun(scope="fragment")
 
-            # Encabezado con Avatar e Íconos de la Vacante Activa
             st.markdown(
                 f"""
                 <div style='display:flex;align-items:flex-start;gap:14px;margin-top:6px;margin-bottom:10px;'>
-                  {det_avatar}
+                  {det_monogram}
                   <div style='flex:1;'>
-                    <div style='font-size:1.18rem;font-weight:800;color:#0F172A;line-height:1.25;'>
-                      {det_role_icon} {html.escape(job['title'])}
+                    <div style='font-size:1.12rem;font-weight:800;color:#0F172A;line-height:1.28;'>
+                      {html.escape(job['title'])}
                     </div>
-                    <div style='font-size:0.9rem;color:#475569;margin-top:3px;margin-bottom:8px;'>
-                      🏢 <b>{html.escape(job['company'])}</b> &nbsp;·&nbsp; 📍 {html.escape(job['location'])} &nbsp;·&nbsp;
-                      💰 {html.escape(job.get('salary') or 'Remuneración de ley')}
+                    <div style='font-size:0.86rem;color:#475569;margin-top:3px;margin-bottom:8px;'>
+                      <b>{html.escape(job['company'])}</b> &nbsp;·&nbsp; {html.escape(job['location'])} &nbsp;·&nbsp;
+                      {html.escape(job.get('salary') or 'Remuneración de ley')}
                     </div>
                     <div>
-                      {det_score_pill}{det_mod_badge}{det_portal_badge}
-                      <span class='meta-badge' style='background:#F8FAFC;color:#334155;border:1px solid #CBD5E1;'>
-                        Afinidad técnica: {float(job['technical_match_score']) * 100:.0f}%
-                      </span>
+                      {det_score_pill}{det_mod_pill}{det_portal_pill}
+                      <span class='pill pill-neutral'>Afinidad técnica: {float(job['technical_match_score']) * 100:.0f}%</span>
+                      <span class='pill pill-neutral'>{html.escape(engine_label)}</span>
                     </div>
                   </div>
                 </div>
@@ -781,70 +863,110 @@ def render_interactive_workspace():
             )
 
             st.link_button(
-                "🔗 Abrir Convocatoria Oficial para Postular ↗",
+                "Abrir convocatoria oficial en el portal ↗",
                 job["url"],
                 type="primary",
                 use_container_width=True,
             )
 
-            st.markdown("###### 📌 Clasificar estado *(se guarda en memoria al instante)*")
+            st.markdown("###### Estado de la postulación")
+            clean_status_labels = {
+                "📋 Por postular": "Por postular",
+                "⭐ Favorita": "Destacada",
+                "🚀 Postulado": "Postulado",
+                "🎤 En entrevista": "Entrevista",
+                "❌ Descartada por mí": "Descartar",
+            }
             b_cols = st.columns(len(APPLICATION_STATUSES))
             for col, status_option in zip(b_cols, APPLICATION_STATUSES):
                 is_cur = cur_status == status_option
-                short_label = status_option.replace("Descartada por mí", "Descartar")
                 if col.button(
-                    short_label,
+                    clean_status_labels.get(status_option, status_option),
                     key=f"det_status_{job['id']}_{status_option}",
                     type="primary" if is_cur else "secondary",
                     use_container_width=True,
                 ):
                     update_job_crm(int(job["id"]), status_option)
-                    st.toast(f"Estado guardado: {status_option}")
+                    st.toast(f"Estado guardado: {clean_status_labels.get(status_option, status_option)}")
                     st.rerun(scope="fragment")
 
-            st.markdown(
-                "<div class='otta-pitch-banner'>🚀 Elevator Pitch Personalizado — Haz clic en el ícono de copiar en la esquina del recuadro:</div>",
-                unsafe_allow_html=True,
-            )
-            st.code(job["pitch_recommendation"], language=None, wrap_lines=True)
-
-            st.markdown("###### 💡 Veredicto y Análisis de Compatibilidad")
+            st.markdown("###### Veredicto de compatibilidad")
             st.info(job["verdict_summary"])
 
             sk_col1, sk_col2 = st.columns(2)
             with sk_col1:
-                st.markdown("###### ✅ Habilidades que hacen match")
+                st.markdown("###### Habilidades que coinciden")
                 matching_list = as_list(job.get("matching_skills"))
                 st.markdown(
-                    " ".join(f"<span class='skill-tag'>✓ {html.escape(s)}</span>" for s in matching_list) or "—",
+                    " ".join(f"<span class='skill-tag'>{html.escape(s)}</span>" for s in matching_list) or "—",
                     unsafe_allow_html=True,
                 )
             with sk_col2:
                 missing_list = as_list(job.get("missing_skills"))
-                st.markdown("###### 📌 Requisitos deseables a reforzar")
+                st.markdown("###### Requisitos a reforzar")
                 st.markdown(
-                    " ".join(f"<span class='skill-tag skill-tag-miss'>+ {html.escape(s)}</span>" for s in missing_list)
+                    " ".join(f"<span class='skill-tag skill-tag-miss'>{html.escape(s)}</span>" for s in missing_list)
                     if missing_list
-                    else "<span style='color:#15803D;font-size:0.85rem;font-weight:600;'>✨ Ninguna brecha crítica detectada</span>",
+                    else "<span style='color:#065F46;font-size:0.84rem;font-weight:500;'>Sin brechas críticas detectadas</span>",
                     unsafe_allow_html=True,
                 )
 
+            # Cadena de Razonamiento (Chain-of-Thought · LangGraph)
             st.divider()
-            st.markdown("###### 📝 Tus notas sobre esta postulación")
+            cot_hdr1, cot_hdr2 = st.columns([2.2, 1.2], vertical_alignment="center")
+            with cot_hdr1:
+                st.markdown("###### Razonamiento paso a paso (Chain-of-Thought · LangGraph)")
+            with cot_hdr2:
+                if st.button(
+                    "Re-evaluar con IA (CoT)",
+                    key=f"reeval_cot_{job['id']}",
+                    use_container_width=True,
+                    help="Ejecuta el grafo LangGraph + Chain-of-Thought sobre esta vacante",
+                ):
+                    db = DatabaseManager()
+                    listing_obj = db.get_listing(int(job["id"]))
+                    if listing_obj:
+                        matcher = JobMatcherAI()
+                        new_eval = matcher.evaluate(listing_obj, CANDIDATE_PROFILE)
+                        db.insert_evaluation(int(job["id"]), new_eval)
+                        db.checkpoint()
+                        refresh_jobs_in_state()
+                        st.session_state["selected_job_id"] = int(job["id"])
+                        st.toast("Vacante re-evaluada con LangGraph + CoT")
+                        st.rerun()
+
+            cot_data = parse_reasoning(job.get("reasoning_chain"), job)
+            cot_steps = [
+                ("1. Elegibilidad académica", cot_data.get("academic_eligibility", "")),
+                ("2. Experiencia requerida", cot_data.get("experience_requirements", "")),
+                ("3. Coincidencia técnica con tu CV", cot_data.get("tech_stack_overlap", "")),
+                ("4. Brechas y riesgos", cot_data.get("gaps_and_risks", "")),
+                ("5. Derivación del puntaje", cot_data.get("score_rationale", "")),
+            ]
+            cot_html = "".join(
+                f"<div class='cot-box'><div class='cot-step-title'>{html.escape(step_title)}</div>"
+                f"<div>{html.escape(step_body)}</div></div>"
+                for step_title, step_body in cot_steps
+                if step_body
+            )
+            st.markdown(cot_html, unsafe_allow_html=True)
+
+            st.divider()
+            st.markdown("###### Notas personales")
             notes_val = st.text_area(
                 "Notas",
                 value=job.get("user_notes") or "",
-                placeholder="Ej: Envié CV enfocado en Python y Power BI / Me contactaron por WhatsApp...",
+                placeholder="Ej: Envié CV enfocado en Python y Power BI / Contacto de selección...",
                 key=f"notes_input_{job['id']}",
                 label_visibility="collapsed",
-                height=75,
+                height=70,
             )
-            if st.button("💾 Guardar nota personal", key=f"save_note_btn_{job['id']}", use_container_width=True):
+            if st.button("Guardar nota", key=f"save_note_btn_{job['id']}", use_container_width=True):
                 update_job_crm(int(job["id"]), cur_status, notes=notes_val)
-                st.toast("📝 Nota guardada en memoria.")
+                st.toast("Nota guardada en memoria.")
                 st.rerun(scope="fragment")
 
-            with st.expander("📄 Ver descripción completa del anuncio"):
+            with st.expander("Ver descripción completa del anuncio"):
                 st.text(job.get("raw_description") or "Sin descripción adicional.")
 
 

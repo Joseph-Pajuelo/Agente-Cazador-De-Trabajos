@@ -8,13 +8,18 @@ from pathlib import Path
 from typing import Dict, Any, List
 from dotenv import load_dotenv
 
-from domain.models import JobListing, JobEvaluation
+from domain.models import JobListing, JobEvaluation, LLMJobAssessment, ReasoningChain
 from domain.enums import Modality
 from .prompts import SYSTEM_EVALUATION_PROMPT, build_matching_prompt
 
 logger = logging.getLogger(__name__)
 
 ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+
+# Un razonamiento CoT completo tarda más que una respuesta directa: timeout duro algo mayor.
+LLM_TIMEOUT_SECONDS = 18.0
+# Ejecutor compartido (antes se creaba un ThreadPoolExecutor por cada vacante).
+_LLM_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="gemini-cot")
 
 
 def resolve_gemini_api_key(explicit_key: str | None = None) -> str | None:
@@ -67,44 +72,40 @@ class JobMatcherAI:
                 from google.genai import types
                 self.client = genai.Client(
                     api_key=self.api_key,
-                    http_options=types.HttpOptions(timeout=8000),
+                    http_options=types.HttpOptions(timeout=int(LLM_TIMEOUT_SECONDS * 1000) + 2000),
                 )
                 logger.info(f"Cliente Gemini ({self.MODEL_ID}) inicializado exitosamente.")
             except Exception as e:
                 logger.warning(f"No se pudo inicializar Gemini SDK: {e}. Se usará motor heurístico.")
 
+    @property
+    def llm_available(self) -> bool:
+        return bool(self.client) and not self._circuit_open
+
+    def open_circuit(self, reason: str):
+        if not self._circuit_open:
+            logger.warning(f"Circuit Breaker abierto ({reason}). El resto del lote usará el motor heurístico.")
+        self._circuit_open = True
+
     def evaluate(self, listing: JobListing, candidate_profile: Dict[str, Any]) -> JobEvaluation:
         """
-        Evalúa la vacante:
-        - Paso 1: Pre-filtro determinista rápido (descarta puestos no preprofesionales sin gastar IA).
-        - Paso 2: Si aplica y el Circuit Breaker está cerrado, consulta Gemini 3.8 Flash.
+        Punto de entrada único. Delega en el grafo LangGraph (ai/graph.py):
+        pre-filtro determinista -> razonamiento CoT con Gemini -> puntaje determinista,
+        con Circuit Breaker y degradación elegante al motor heurístico.
         """
-        heuristic_eval = self._evaluate_heuristic(listing, candidate_profile)
+        from .graph import evaluate_with_graph
+        return evaluate_with_graph(self, listing, candidate_profile)
 
-        # Optimización de arquitectura (Pregunta 5 Hackathon): No gastar LLM en ofertas descartadas por reglas duras
-        if not heuristic_eval.is_pre_professional or heuristic_eval.is_unrealistic_or_smoke:
-            return heuristic_eval
+    def assess_with_gemini(self, listing: JobListing, candidate_profile: Dict[str, Any]) -> LLMJobAssessment:
+        """Llama a Gemini con salida estructurada (CoT primero) y un timeout duro."""
+        future = _LLM_EXECUTOR.submit(self._call_gemini, listing, candidate_profile)
+        return future.result(timeout=LLM_TIMEOUT_SECONDS)
 
-        if self.client and not self._circuit_open:
-            try:
-                ex = ThreadPoolExecutor(max_workers=1)
-                fut = ex.submit(self._evaluate_with_gemini, listing, candidate_profile)
-                try:
-                    return fut.result(timeout=5.0)
-                finally:
-                    ex.shutdown(wait=False, cancel_futures=True)
-            except (FuturesTimeoutError, Exception) as e:
-                logger.warning(f"Circuit Breaker activado tras timeout/fallo en Gemini API ({type(e).__name__}). Usando motor heurístico para el lote.")
-                self._circuit_open = True
-                return heuristic_eval
-        return heuristic_eval
-
-    def _evaluate_with_gemini(self, listing: JobListing, candidate_profile: Dict[str, Any]) -> JobEvaluation:
+    def _call_gemini(self, listing: JobListing, candidate_profile: Dict[str, Any]) -> LLMJobAssessment:
         prompt = build_matching_prompt(
             candidate_profile_json=json.dumps(candidate_profile, ensure_ascii=False, indent=2),
             job_listing_dict=listing.model_dump(mode="json")
         )
-
         interaction = self.client.interactions.create(
             model=self.MODEL_ID,
             input=prompt,
@@ -112,17 +113,15 @@ class JobMatcherAI:
             response_format={
                 "type": "text",
                 "mime_type": "application/json",
-                "schema": JobEvaluation.model_json_schema(),
+                "schema": LLMJobAssessment.model_json_schema(),
             },
         )
+        return LLMJobAssessment.model_validate_json(interaction.output_text)
 
-        evaluation = JobEvaluation.model_validate_json(interaction.output_text)
-
-        modality_weight = self._calculate_modality_score(listing.modality)
-        location_weight = self._calculate_location_score(listing.location, listing.raw_description)
-        evaluation.modality_score = modality_weight
-        evaluation.location_score = location_weight
-
+    def apply_deterministic_scores(self, evaluation: JobEvaluation, listing: JobListing) -> JobEvaluation:
+        """Modalidad, ubicación y ranking final se calculan con reglas, no los decide el LLM."""
+        evaluation.modality_score = round(self._calculate_modality_score(listing.modality), 2)
+        evaluation.location_score = round(self._calculate_location_score(listing.location, listing.raw_description), 2)
         evaluation.final_ranking_score = round(
             (evaluation.technical_match_score * 0.55 +
              evaluation.modality_score * 0.25 +
@@ -237,24 +236,46 @@ class JobMatcherAI:
 
         final_score = round((base_match * 0.55 + modality_score * 0.25 + loc_score * 0.20) * 100.0, 2)
 
-        company_name = listing.company if listing.company not in ("Empresa Confidencial", "Empresa confidencial") else "su equipo"
-        skills_str = ", ".join(matching[:4]) if matching else "SQL, Python, Power BI y desarrollo de software"
+        skills_str = ", ".join(matching[:4]) if matching else "ninguna competencia clave explícita"
 
-        status_note = "Apta para 8vo ciclo (Preprofesional)." if is_pre else "Atención: requiere perfil egresado/profesional."
+        status_note = "Apta para 8vo ciclo (preprofesional)." if is_pre else "Requiere perfil egresado o profesional."
         verdict = (
             f"{status_note} Coincide en {len(matching)} competencias clave ({skills_str}). "
-            f"Ubicación: {listing.location} | Modalidad: {listing.modality.value}."
+            f"Ubicación: {listing.location} · Modalidad: {listing.modality.value}."
         )
 
-        pitch = (
-            f"Hola, soy Joseph Pajuelo, estudiante de 8vo ciclo de Ingeniería de Sistemas e Informática en la UTP. "
-            f"Me interesa postular a la posición de {listing.title} en {company_name} porque combino experiencia práctica "
-            f"construyendo agentes de IA, APIs y dashboards en Clevtronix con certificaciones en Python y Power BI (UNI) y Excel (UNMSM). "
-            f"Además, como Master Trainer en Papa John's he liderado equipos bajo presión asegurando auditorías al 100%. "
-            f"Puedo aportar desde el primer día en {skills_str}."
+        # Cadena de razonamiento determinista: hace explicable incluso la evaluación sin LLM
+        if not is_pre:
+            academic = "La oferta apunta a egresados/bachilleres o no es una práctica; no encaja con un estudiante de 8vo ciclo."
+        elif has_pre_marker:
+            academic = "La oferta menciona explícitamente prácticas preprofesionales o un ciclo compatible con el 8vo."
+        else:
+            academic = "Es una práctica, aunque no especifica ciclo; se asume compatible con un estudiante de 8vo ciclo."
+        experience = (
+            "Detecta exigencia de 2+ años de experiencia o falta de remuneración: posible oferta trampa."
+            if is_smoke else
+            "No se detectan exigencias de experiencia irreales ni señales de práctica no remunerada."
+        )
+        reasoning = ReasoningChain(
+            academic_eligibility=academic,
+            experience_requirements=experience,
+            tech_stack_overlap=(
+                f"Coincidencias detectadas por reglas: {', '.join(matching)}." if matching
+                else "No se detectaron tecnologías del perfil en el texto de la oferta."
+            ),
+            gaps_and_risks=(
+                f"Pide tecnologías que el perfil no cubre: {', '.join(missing)}." if missing
+                else "No se detectan brechas tecnológicas relevantes en el texto."
+            ),
+            score_rationale=(
+                f"Puntaje técnico {base_match:.2f} = base 0.30 + 0.11 por cada una de las {len(matching)} coincidencias"
+                f"{' + 0.20 por título del área TI/datos' if title_bonus else ''} (motor heurístico, sin LLM)."
+            ),
         )
 
         return JobEvaluation(
+            reasoning=reasoning,
+            engine="heuristic",
             is_pre_professional=is_pre,
             is_unrealistic_or_smoke=is_smoke,
             technical_match_score=base_match,
@@ -264,5 +285,4 @@ class JobMatcherAI:
             matching_skills=matching,
             missing_skills=missing,
             verdict_summary=verdict,
-            pitch_recommendation=pitch,
         )
