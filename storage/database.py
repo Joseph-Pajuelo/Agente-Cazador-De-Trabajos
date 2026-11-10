@@ -403,7 +403,7 @@ class DatabaseManager:
             cursor.execute("""
                 SELECT 
                     j.id, j.title, j.company, j.location, j.modality, j.url, j.salary, j.source,
-                    j.raw_description, j.created_at,
+                    j.raw_description, j.published_at, j.created_at,
                     COALESCE(j.application_status, '📋 Por postular') AS application_status,
                     j.applied_at,
                     COALESCE(j.user_notes, '') AS user_notes,

@@ -17,32 +17,61 @@ root_dir = Path(__file__).resolve().parent
 if str(root_dir) not in sys.path:
     sys.path.insert(0, str(root_dir))
 
-import config.search as _cfg_search
-import domain.models as _dom_models
-import domain.companies as _dom_comp
-import domain.search_engine as _dom_search
-import storage.database as _storage_db
-import ai.prompts as _ai_prompts
-import ai.matcher as _ai_matcher
-import ai.graph as _ai_graph
-import run as _run_mod
+# Módulos internos del proyecto en orden de dependencia (hojas primero).
+_PROJECT_MODULES = (
+    "config.search",
+    "config.candidate_profile",
+    "domain.enums",
+    "domain.models",
+    "domain.companies",
+    "domain.ranking",
+    "domain.search_engine",
+    "storage.database",
+    "ai.prompts",
+    "ai.graph",
+    "ai.matcher",
+    "adapters.base",
+    "adapters.practicas_pe",
+    "adapters.bumeran",
+    "adapters.linkedin",
+    "adapters.computrabajo",
+    "adapters.cvmatcher",
+    "delivery.pdf_report",
+    "run",
+)
 
-# Si Streamlit Cloud hizo hot-reload en caliente sin reiniciar el proceso Python,
-# recargamos los submódulos en RAM para que tomen las nuevas funciones del último commit.
-if (
-    not hasattr(_dom_models, "ReasoningChain")
-    or not hasattr(_storage_db.DatabaseManager, "get_listing")
-    or not hasattr(_ai_matcher.JobMatcherAI, "assess_with_gemini")
-):
-    importlib.reload(_cfg_search)
-    importlib.reload(_dom_models)
-    importlib.reload(_dom_comp)
-    importlib.reload(_dom_search)
-    importlib.reload(_storage_db)
-    importlib.reload(_ai_prompts)
-    importlib.reload(_ai_matcher)
-    importlib.reload(_ai_graph)
-    importlib.reload(_run_mod)
+
+def _hot_reload_stale_project_modules() -> None:
+    """
+    Streamlit Cloud aplica los nuevos commits re-ejecutando app.py, pero NO reinicia el proceso
+    Python: los submódulos ya importados siguen en sys.modules con el código viejo y cualquier
+    `from x import funcion_nueva` lanza ImportError. Aquí comparamos la fecha de modificación de
+    cada archivo con la del momento en que se cargó y, si alguno cambió, recargamos todos los
+    módulos del proyecto en orden de dependencia (así nunca quedan referencias mezcladas).
+    """
+    stale = False
+    for name in _PROJECT_MODULES:
+        mod = sys.modules.get(name)
+        if mod is None or not getattr(mod, "__file__", None):
+            continue
+        try:
+            mtime = os.path.getmtime(mod.__file__)
+        except OSError:
+            continue
+        if getattr(mod, "__loaded_mtime__", None) != mtime:
+            stale = True
+            break
+
+    for name in _PROJECT_MODULES:
+        try:
+            mod = sys.modules.get(name)
+            mod = importlib.reload(mod) if (stale and mod is not None) else importlib.import_module(name)
+            mod.__loaded_mtime__ = os.path.getmtime(mod.__file__)
+        except Exception as exc:  # un módulo opcional roto no debe tumbar el dashboard
+            print(f"[hot-reload] No se pudo cargar {name}: {exc}", file=sys.stderr)
+
+
+_hot_reload_stale_project_modules()
 
 from config.candidate_profile import CANDIDATE_PROFILE
 from storage.database import DatabaseManager, APPLICATION_STATUSES
@@ -427,6 +456,35 @@ def update_job_crm(job_id: int, new_status: str, notes: str | None = None):
     st.session_state["selected_job_id"] = int(job_id)
 
 
+# --- Callbacks de widgets (se ejecutan ANTES del rerun: no requieren st.rerun manual) ---
+def _set_page(page: int):
+    st.session_state["page_number"] = max(0, int(page))
+
+
+def _select_job(job_id: int):
+    st.session_state["selected_job_id"] = int(job_id)
+
+
+def _on_quick_select():
+    chosen = st.session_state.get("quick_job_select")
+    if chosen is not None:
+        st.session_state["selected_job_id"] = int(chosen)
+
+
+def _change_status(job_id: int, new_status: str, label: str = ""):
+    update_job_crm(int(job_id), new_status)
+    clean = new_status.encode("ascii", "ignore").decode("ascii").strip() or new_status
+    st.session_state["_pending_toast"] = f"{label}: {clean}" if label else f"Estado guardado: {clean}"
+    # Los contadores de la cabecera viven fuera del fragmento: pedir un rerun completo
+    st.session_state["_crm_dirty"] = True
+
+
+def _save_note(job_id: int, status: str):
+    notes = st.session_state.get(f"notes_input_{job_id}", "")
+    update_job_crm(int(job_id), status, notes=notes)
+    st.session_state["_pending_toast"] = "Nota guardada en memoria."
+
+
 all_adapter_names = [a.name for a in get_adapters()]
 active_api_key = resolve_gemini_api_key()
 all_loaded_jobs = st.session_state.get("jobs_data", [])
@@ -540,6 +598,13 @@ if not all_loaded_jobs:
 # ---------------- Workspace Reactivo (Buscador Inteligente + Master-Detail) ----------------
 @st.fragment
 def render_interactive_workspace():
+    # Un cambio de estado CRM actualiza también la cabecera (fuera del fragmento)
+    if st.session_state.pop("_crm_dirty", False):
+        st.rerun()
+    pending_toast = st.session_state.pop("_pending_toast", None)
+    if pending_toast:
+        st.toast(pending_toast)
+
     all_jobs = st.session_state.get("jobs_data", [])
 
     # 1. Contadores rápidos por estado CRM
@@ -752,13 +817,15 @@ def render_interactive_workspace():
         with hdr_r:
             if total_pages > 1:
                 p_prev, p_info, p_next = st.columns([1, 1.5, 1], vertical_alignment="center")
-                if p_prev.button("‹", disabled=(cur_page == 0), key="pg_prev", use_container_width=True):
-                    st.session_state["page_number"] = cur_page - 1
-                    st.rerun(scope="fragment")
+                p_prev.button(
+                    "‹", disabled=(cur_page == 0), key="pg_prev", use_container_width=True,
+                    on_click=_set_page, args=(cur_page - 1,),
+                )
                 p_info.caption(f"Pág. {cur_page + 1}/{total_pages}")
-                if p_next.button("›", disabled=(cur_page >= total_pages - 1), key="pg_next", use_container_width=True):
-                    st.session_state["page_number"] = cur_page + 1
-                    st.rerun(scope="fragment")
+                p_next.button(
+                    "›", disabled=(cur_page >= total_pages - 1), key="pg_next", use_container_width=True,
+                    on_click=_set_page, args=(cur_page + 1,),
+                )
 
         for j in page_items:
             jid = int(j["id"])
@@ -819,36 +886,30 @@ def render_interactive_workspace():
                 )
 
                 act1, act2, act3, act4 = st.columns([1.65, 1.15, 1.25, 1.0])
-                if act1.button(
+                act1.button(
                     "Viendo análisis" if is_selected else "Ver análisis",
                     key=f"sel_{jid}",
                     type="primary" if is_selected else "secondary",
                     use_container_width=True,
-                ):
-                    st.session_state["selected_job_id"] = jid
-                    st.rerun(scope="fragment")
-
-                if act2.button(
+                    on_click=_select_job,
+                    args=(jid,),
+                )
+                act2.button(
                     "★ Destacada" if is_fav else "Destacar",
                     key=f"fav_{jid}",
                     type="primary" if is_fav else "secondary",
                     use_container_width=True,
-                ):
-                    new_st = "📋 Por postular" if is_fav else "⭐ Favorita"
-                    update_job_crm(jid, new_st)
-                    st.toast(f"{j['company']}: {new_st}")
-                    st.rerun(scope="fragment")
-
-                if act3.button(
+                    on_click=_change_status,
+                    args=(jid, "📋 Por postular" if is_fav else "⭐ Favorita", j["company"]),
+                )
+                act3.button(
                     "✓ Postulado" if is_applied else "Postularé",
                     key=f"app_{jid}",
                     type="primary" if is_applied else "secondary",
                     use_container_width=True,
-                ):
-                    new_st = "📋 Por postular" if is_applied else "🚀 Postulado"
-                    update_job_crm(jid, new_st)
-                    st.toast(f"{j['company']}: {new_st}")
-                    st.rerun(scope="fragment")
+                    on_click=_change_status,
+                    args=(jid, "📋 Por postular" if is_applied else "🚀 Postulado", j["company"]),
+                )
 
                 act4.link_button("Abrir ↗", j["url"], use_container_width=True)
 
@@ -867,21 +928,20 @@ def render_interactive_workspace():
             engine_used = job.get("engine") or "heuristic"
             engine_label = "Gemini 3.8 Flash · CoT" if engine_used == "gemini-cot" else "LangGraph · Heurístico"
 
-            # Selector rápido superior
+            # Selector rápido superior (ligado por key: sin rebotes ni reruns manuales)
             id_to_label = {
                 int(item["id"]): f"{idx + 1}. {item['title']} — {item['company']} ({float(item['final_ranking_score']):.0f}%)"
                 for idx, item in enumerate(filtered)
             }
-            chosen_id = st.selectbox(
+            st.session_state["quick_job_select"] = active_job_id
+            st.selectbox(
                 "Cambio rápido de vacante:",
                 options=filtered_ids,
-                index=filtered_ids.index(active_job_id),
                 format_func=lambda x: id_to_label.get(x, str(x)),
                 label_visibility="collapsed",
+                key="quick_job_select",
+                on_change=_on_quick_select,
             )
-            if int(chosen_id) != active_job_id:
-                st.session_state["selected_job_id"] = int(chosen_id)
-                st.rerun(scope="fragment")
 
             st.markdown(
                 f"""
@@ -924,15 +984,14 @@ def render_interactive_workspace():
             b_cols = st.columns(len(APPLICATION_STATUSES))
             for col, status_option in zip(b_cols, APPLICATION_STATUSES):
                 is_cur = cur_status == status_option
-                if col.button(
+                col.button(
                     clean_status_labels.get(status_option, status_option),
                     key=f"det_status_{job['id']}_{status_option}",
                     type="primary" if is_cur else "secondary",
                     use_container_width=True,
-                ):
-                    update_job_crm(int(job["id"]), status_option)
-                    st.toast(f"Estado guardado: {clean_status_labels.get(status_option, status_option)}")
-                    st.rerun(scope="fragment")
+                    on_click=_change_status,
+                    args=(int(job["id"]), status_option, clean_status_labels.get(status_option, status_option)),
+                )
 
             st.markdown("###### Veredicto de compatibilidad")
             st.info(job["verdict_summary"])
@@ -961,7 +1020,7 @@ def render_interactive_workspace():
 
             st.divider()
             st.markdown("###### Notas personales")
-            notes_val = st.text_area(
+            st.text_area(
                 "Notas",
                 value=job.get("user_notes") or "",
                 placeholder="Ej: Envié CV enfocado en Python y Power BI / Contacto de selección...",
@@ -969,10 +1028,13 @@ def render_interactive_workspace():
                 label_visibility="collapsed",
                 height=70,
             )
-            if st.button("Guardar nota", key=f"save_note_btn_{job['id']}", use_container_width=True):
-                update_job_crm(int(job["id"]), cur_status, notes=notes_val)
-                st.toast("Nota guardada en memoria.")
-                st.rerun(scope="fragment")
+            st.button(
+                "Guardar nota",
+                key=f"save_note_btn_{job['id']}",
+                use_container_width=True,
+                on_click=_save_note,
+                args=(int(job["id"]), cur_status),
+            )
 
 
 render_interactive_workspace()
