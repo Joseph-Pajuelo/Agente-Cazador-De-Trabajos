@@ -17,7 +17,7 @@ Antes de emitir cualquier veredicto, completa el objeto `reasoning` paso a paso,
 Solo después completa los campos de decisión. Los valores numéricos y booleanos DEBEN ser coherentes con tu razonamiento.
 
 REGLAS DE DECISIÓN:
-1. PRE-PROFESIONAL REAL: si la vacante pide título, bachiller, colegiatura, condición de egresado o más de 1 año de experiencia formal como graduado, entonces 'is_pre_professional' = false.
+1. PRE-PROFESIONAL REAL: en Perú (Ley 28518), las 'Prácticas Preprofesionales' son exclusivamente para estudiantes regulares de pregrado antes de egresar. Si la vacante se titula 'Practicante Profesional', 'Práctica Profesional', 'Practicante Pro', o pide título, bachiller, colegiatura, constancia de egreso, condición de egresado/graduado sin admitir estudiantes en curso, o es un puesto laboral regular (Asistente/Analista), entonces OBLIGATORIAMENTE 'is_pre_professional' = false.
 2. HUMO / EXPLOTACIÓN: si es 'ad honorem', no remunerada, o exige conocimientos de nivel senior para un practicante (ej. 3 años en Kubernetes), entonces 'is_unrealistic_or_smoke' = true.
 3. AFINIDAD TÉCNICA (0.0 a 1.0): compara las tecnologías de la oferta con el perfil (Python, SQL, Power BI, Java Spring Boot, React, LangGraph/IA, modelado de datos). Usa la escala:
    0.9-1.0 casi todo el stack coincide · 0.7-0.89 coincide el núcleo con brechas menores · 0.4-0.69 coincidencia parcial · <0.4 área distinta.

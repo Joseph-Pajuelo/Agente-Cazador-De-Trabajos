@@ -95,6 +95,40 @@ def test_matcher_distinguishes_preprofesional_vs_profesional():
     eval_prof = matcher._evaluate_heuristic(prof_job, CANDIDATE_PROFILE)
     assert eval_prof.is_pre_professional is False
 
+    # Caso 1B: Variantes como "Practicante Pro", "(Egresados)" o "Modalidad: Profesional" deben descartarse rigurosamente
+    egresado_title_job = JobListing(
+        source=JobSource.PRACTICAS_PE,
+        title="Practicante de Análisis de datos (Egresados)",
+        company="UTP",
+        location="Lima",
+        modality=Modality.HIBRIDO,
+        url="https://practicas.pe/1.html",
+        raw_description="Estudios universitarios en carreras afines. Power BI y Excel.",
+    )
+    assert matcher._evaluate_heuristic(egresado_title_job, CANDIDATE_PROFILE).is_pre_professional is False
+
+    practicante_pro_job = JobListing(
+        source=JobSource.BUMERAN,
+        title="Practicante Pro de Automatización",
+        company="Movistar",
+        location="Lima",
+        modality=Modality.HIBRIDO,
+        url="https://bumeran.com.pe/pro.html",
+        raw_description="Buscamos practicante pro para automatización de procesos.",
+    )
+    assert matcher._evaluate_heuristic(practicante_pro_job, CANDIDATE_PROFILE).is_pre_professional is False
+
+    mod_profesional_job = JobListing(
+        source=JobSource.PRACTICAS_PE,
+        title="Practicante de Sistemas",
+        company="Entidad Pública",
+        location="Lima",
+        modality=Modality.PRESENCIAL,
+        url="https://practicas.pe/2.html",
+        raw_description="Requisitos:\nModalidad de prácticas: Profesional\nFormación: Egresado de Sistemas.",
+    )
+    assert matcher._evaluate_heuristic(mod_profesional_job, CANDIDATE_PROFILE).is_pre_professional is False
+
     # Caso 2: Practicante Preprofesional en La Molina con modalidad Híbrida -> alto puntaje y apto
     pre_job = JobListing(
         source=JobSource.BUMERAN,

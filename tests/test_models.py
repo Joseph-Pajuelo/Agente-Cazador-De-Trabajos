@@ -76,6 +76,16 @@ def test_smart_search_agency_and_typos():
             "raw_description": "Únete a nuestra convocatoria en el banco más grande del Perú.",
             "final_ranking_score": 82.0,
         },
+        {
+            "id": 3,
+            "title": "Practicante Preprofesional de Sistemas",
+            "company": "Interbank",
+            "location": "San Isidro, Lima",
+            "modality": "Presencial",
+            "matching_skills": '["Java"]',
+            "raw_description": "Sede corporativa en San Isidro.",
+            "final_ranking_score": 80.0,
+        },
     ]
 
     # 1. Buscar "bcp" debe traer tanto la directa del BCP como la de ManpowerGroup para "el banco más grande del Perú"
@@ -89,4 +99,10 @@ def test_smart_search_agency_and_typos():
     assert res_typo.corrected_query == "python"
     assert len(res_typo.jobs) == 1
     assert res_typo.jobs[0]["id"] == 1
+
+    # 3. Buscar con typo en distrito ("sani isidro") debe corregir a "san isidro" y encontrar la vacante #3
+    res_distrito = search_jobs(sample_jobs, "sani isidro")
+    assert res_distrito.corrected_query == "san isidro"
+    assert len(res_distrito.jobs) == 1
+    assert res_distrito.jobs[0]["id"] == 3
 

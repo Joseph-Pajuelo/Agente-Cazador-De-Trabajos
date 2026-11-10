@@ -163,23 +163,80 @@ class JobMatcherAI:
         title_lower = listing.title.lower()
         combined = f"{title_lower} {desc_lower}"
 
-        # 1. Validación estricta de Práctica Preprofesional (Estudiante vs Egresado/Senior)
+        # 1. Validación rigurosa de Práctica Preprofesional (Estudiante vs Egresado/Profesional/Empleo regular)
         is_pre = True
-        has_pre_marker = any(
+        reject_reason = ""
+
+        has_pre_in_title = bool(re.search(r"\bpre\b|pre[\s\-]*profesional", title_lower))
+        is_profesional_title = bool(
+            re.search(
+                r"\b(practicante[s]?\s+profesional(es)?|pr[áa]ctica[s]?\s+profesional(es)?|practicante\s+pro)\b",
+                title_lower,
+            )
+        )
+        has_egresado_title = bool(
+            re.search(r"\b(egresad[oa]s?|bachiller(es)?|titulad[oa]s?|graduate|graduad[oa]s?)\b", title_lower)
+        )
+
+        has_student_marker = any(
             m in combined for m in [
                 "preprofesional", "pre-profesional", "pre profesional",
-                "7mo", "8vo", "9no", "séptimo", "octavo", "noveno",
-                "estudiante universitario", "estudiantes de", "estudiante de"
+                "7mo", "8vo", "9no", "séptimo", "septimo", "octavo", "noveno", "décimo", "decimo", "10mo",
+                "estudiante universitario", "estudiantes universitarios",
+                "estudiantes de", "estudiante de", "últimos ciclos", "ultimos ciclos",
+                "cursando actualmente", "en curso"
             ]
         )
-        if re.search(r"practicante\s+profesional", title_lower) and not re.search(r"pre[\s\-]*profesional", title_lower):
+
+        # Regla A: Título explícito de práctica profesional o dirigido a egresados/graduados
+        if is_profesional_title and not has_pre_in_title:
             is_pre = False
-        if not any(k in title_lower for k in ["practicante", "práctica", "practica", "trainee", "becario", "intern", "pasante"]):
-            if not has_pre_marker:
+            reject_reason = "El título indica Práctica Profesional (exclusiva para egresados universitarios, no preprofesional)."
+        elif has_egresado_title and not has_pre_in_title:
+            is_pre = False
+            reject_reason = "El puesto está dirigido a egresados/graduados (no para estudiante de 8vo ciclo)."
+
+        # Regla B: Empleo regular que no es modalidad formativa de prácticas
+        if is_pre:
+            is_internship_title = any(
+                k in title_lower for k in [
+                    "practicante", "práctica", "practica", "trainee", "becari", "pasant", "intern"
+                ]
+            )
+            has_student_in_desc = any(
+                m in desc_lower for m in [
+                    "preprofesional", "pre-profesional", "pre profesional",
+                    "7mo", "8vo", "9no", "séptimo", "septimo", "octavo", "noveno",
+                    "estudiante universitario", "estudiante de", "estudiantes de", "últimos ciclos"
+                ]
+            )
+            if not is_internship_title and not has_pre_in_title and not has_student_in_desc:
                 is_pre = False
-        if any(term in desc_lower for term in ["egresado o bachiller", "bachiller o titulado", "titulado colegiado"]):
-            if not has_pre_marker:
+                reject_reason = "Puesto laboral regular (no es convocatoria de práctica preprofesional formativa)."
+
+        # Regla C: Modalidad explícita en ficha técnica / descripción
+        if is_pre:
+            mod_match = re.search(r"modalidad\s+de\s+pr[áa]cticas?:\s*([^\r\n]+)", desc_lower)
+            if mod_match:
+                mod_text = mod_match.group(1).strip()
+                if "pre" not in mod_text and ("profesional" in mod_text or "profesionales" in mod_text):
+                    is_pre = False
+                    reject_reason = f"La convocatoria especifica 'Modalidad de prácticas: {mod_text}', incompatible con preprofesional."
+
+        # Regla D: Requisito de egreso excluyente sin opción para estudiantes
+        if is_pre:
+            has_egresado_req = bool(
+                re.search(
+                    r"\b(constancia\s+de\s+egresad|acreditar\s+ser\s+egresad|condici[óo]n\s+de\s+egresad|"
+                    r"egresad[oa]\s+universitari[oa]|egresad[oa]\s+de\s+(las\s+)?carreras?|"
+                    r"egresado\s+o\s+bachiller|bachiller\s+o\s+titulado|titulado\s+colegiado|"
+                    r"reci[eé]n\s+egresad[oa]|formaci[oó]n\s+universitaria\s+completa)\b",
+                    desc_lower,
+                )
+            )
+            if has_egresado_req and not has_student_marker and not has_pre_in_title:
                 is_pre = False
+                reject_reason = "Exige constancia de egreso, formación universitaria completa o condición de egresado/bachiller."
 
         # 2. Detección de ofertas trampa / humo
         is_smoke = False
@@ -238,7 +295,7 @@ class JobMatcherAI:
 
         skills_str = ", ".join(matching[:4]) if matching else "ninguna competencia clave explícita"
 
-        status_note = "Apta para 8vo ciclo (preprofesional)." if is_pre else "Requiere perfil egresado o profesional."
+        status_note = "Apta para 8vo ciclo (preprofesional)." if is_pre else f"Descartada: {reject_reason or 'No es preprofesional.'}"
         verdict = (
             f"{status_note} Coincide en {len(matching)} competencias clave ({skills_str}). "
             f"Ubicación: {listing.location} · Modalidad: {listing.modality.value}."
@@ -246,9 +303,9 @@ class JobMatcherAI:
 
         # Cadena de razonamiento determinista: hace explicable incluso la evaluación sin LLM
         if not is_pre:
-            academic = "La oferta apunta a egresados/bachilleres o no es una práctica; no encaja con un estudiante de 8vo ciclo."
-        elif has_pre_marker:
-            academic = "La oferta menciona explícitamente prácticas preprofesionales o un ciclo compatible con el 8vo."
+            academic = reject_reason or "La oferta apunta a egresados/bachilleres o empleo regular; incompatible con estudiante de 8vo ciclo."
+        elif has_student_marker or has_pre_in_title:
+            academic = "La oferta menciona explícitamente prácticas preprofesionales o ciclo universitario compatible con el 8vo."
         else:
             academic = "Es una práctica, aunque no especifica ciclo; se asume compatible con un estudiante de 8vo ciclo."
         experience = (

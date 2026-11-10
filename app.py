@@ -561,32 +561,38 @@ def render_interactive_workspace():
             "❌ Descartada por mí": f"Descartadas ({counts['❌ Descartada por mí']})",
             "📂 Todas": f"Todas ({len(all_jobs)})",
         }
-        reverse_tab_map = {v: k for k, v in tab_options.items()}
-        current_tab_key = st.session_state.get("crm_quick_tab", "🌐 Activas")
-        if current_tab_key not in tab_options:
-            current_tab_key = "🌐 Activas"
 
-        selected_tab_label = st.segmented_control(
+        if "crm_quick_tab" not in st.session_state or st.session_state["crm_quick_tab"] not in tab_options:
+            st.session_state["crm_quick_tab"] = "🌐 Activas"
+
+        def _on_crm_tab_change():
+            st.session_state["page_number"] = 0
+
+        raw_selected_tab = st.segmented_control(
             "Clasificación CRM",
-            options=list(tab_options.values()),
-            default=tab_options[current_tab_key],
+            options=list(tab_options.keys()),
+            format_func=lambda k: tab_options.get(k, k),
+            key="crm_quick_tab",
             label_visibility="collapsed",
+            on_change=_on_crm_tab_change,
         )
-        if selected_tab_label and reverse_tab_map.get(selected_tab_label) != current_tab_key:
-            st.session_state["crm_quick_tab"] = reverse_tab_map[selected_tab_label]
-            current_tab_key = st.session_state["crm_quick_tab"]
+        current_tab_key = raw_selected_tab or "🌐 Activas"
+
+        def _on_search_change():
+            st.session_state["page_number"] = 0
+
+        def _apply_search_suggestion(term: str):
+            st.session_state["search_query_text"] = term
             st.session_state["page_number"] = 0
 
         f_col1, f_col2, f_col3, f_col4, f_col5 = st.columns([2.25, 1.4, 1.4, 1.05, 1.4])
         with f_col1:
             query = st.text_input(
                 "Buscar por empresa (ej. BCP, Movistar), puesto, tecnología o distrito",
-                value=st.session_state.get("search_query_text", ""),
+                key="search_query_text",
                 placeholder="Ej: BCP, Python, Power BI, Interbank, San Isidro...",
+                on_change=_on_search_change,
             )
-            if query != st.session_state.get("search_query_text", ""):
-                st.session_state["search_query_text"] = query
-                st.session_state["page_number"] = 0
         with f_col2:
             modalities = st.multiselect(
                 "Modalidad",
@@ -629,13 +635,24 @@ def render_interactive_workspace():
         if job_status not in allowed_statuses:
             continue
         is_user_saved = job_status in ("⭐ Favorita", "🚀 Postulado", "🎤 En entrevista")
-        if not show_discarded_ai and not is_user_saved and not has_active_query and not is_recommended(j, 0):
+
+        # 1. Filtro estricto de Práctica Preprofesional:
+        # A menos que el usuario marque explícitamente "Incluir descartadas por IA (egresados)",
+        # NUNCA mostrar ofertas que no sean preprofesionales ni ofertas humo/engaño,
+        # INCLUSO si hay una búsqueda activa por texto.
+        if not show_discarded_ai and not is_user_saved:
+            if not bool(j.get("is_pre_professional")) or bool(j.get("is_unrealistic_or_smoke")):
+                continue
+
+        # 2. Filtro de puntaje de compatibilidad:
+        # Si el usuario busca un término específico (ej. "bcp"), relajamos el umbral del slider
+        # para no esconder ofertas relevantes de agencias que tengan puntaje menor al umbral.
+        if float(j.get("final_ranking_score") or 0) < min_score and not is_user_saved and not has_active_query:
             continue
-        if float(j["final_ranking_score"]) < min_score and not is_user_saved and not has_active_query:
+
+        if modalities and j.get("modality") not in modalities:
             continue
-        if modalities and j["modality"] not in modalities:
-            continue
-        if selected_sources and j["source"] not in selected_sources:
+        if selected_sources and j.get("source") not in selected_sources:
             continue
         base_filtered.append(j)
 
@@ -669,16 +686,22 @@ def render_interactive_workspace():
             s_cols = st.columns([1.2] + [1] * len(suggestions_to_show[:4]) + [3])
             s_cols[0].caption("Sugerencias:")
             for idx_s, sug in enumerate(suggestions_to_show[:4]):
-                if s_cols[idx_s + 1].button(sug, key=f"sug_btn_{sug}", use_container_width=True):
-                    st.session_state["search_query_text"] = sug
-                    st.session_state["page_number"] = 0
-                    st.rerun(scope="fragment")
+                s_cols[idx_s + 1].button(
+                    sug,
+                    key=f"sug_btn_{sug}",
+                    use_container_width=True,
+                    on_click=_apply_search_suggestion,
+                    args=(sug,),
+                )
 
     if not filtered:
         st.warning("No se encontraron vacantes con esos criterios.")
-        if st.button("Limpiar búsqueda", key="clear_search_empty"):
-            st.session_state["search_query_text"] = ""
-            st.rerun(scope="fragment")
+        st.button(
+            "Limpiar búsqueda",
+            key="clear_search_empty",
+            on_click=_apply_search_suggestion,
+            args=("",),
+        )
         return
 
     # Garantizar que exista una vacante seleccionada válida en memoria

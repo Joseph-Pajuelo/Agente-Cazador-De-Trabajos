@@ -36,6 +36,13 @@ SYNONYM_MAP: dict[str, tuple[str, ...]] = {
     "remoto": ("remoto", "teletrabajo", "home office", "virtual"),
     "presencial": ("presencial",),
     "banca": ("banca", "banco", "bancos", "bancario", "financiero", "finanzas"),
+    "san isidro": ("san isidro", "sani isidro", "sanisidro", "isidro", "san isidr"),
+    "la molina": ("la molina", "lamolina", "molina"),
+    "miraflores": ("miraflores", "miraflore"),
+    "san borja": ("san borja", "sanborja", "borja"),
+    "surco": ("surco", "santiago de surco"),
+    "ate": ("ate", "ate vitarte"),
+    "jesus maria": ("jesus maria", "jesús maría", "jesusmaria"),
 }
 
 # Vocabulario canónico para corrección ortográfica ("¿Quisiste decir...?")
@@ -105,7 +112,7 @@ def suggest_corrections(raw_query: str) -> tuple[Optional[str], List[str]]:
             return canonical, [canonical]
 
     close_full = difflib.get_close_matches(q_norm, CANONICAL_VOCABULARY, n=4, cutoff=0.72)
-    if close_full and close_full[0] != q_norm and " " in close_full[0]:
+    if close_full and close_full[0] != q_norm:
         return close_full[0], [s for s in close_full if s != q_norm]
 
     # 1. Revisar token por token
