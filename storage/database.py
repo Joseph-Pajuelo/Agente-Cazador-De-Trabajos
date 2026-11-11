@@ -180,19 +180,22 @@ class DatabaseManager:
             if self._memory_path:
                 memory = self._load_crm_memory()
                 for dedup_hash, data in memory.items():
+                    mem_status = data.get("application_status", "📋 Por postular")
+                    mem_applied = data.get("applied_at")
+                    mem_notes = data.get("user_notes", "")
                     cursor.execute(
                         """
                         UPDATE job_listings
                         SET application_status = ?,
                             applied_at = COALESCE(?, applied_at),
-                            user_notes = CASE WHEN user_notes = '' THEN ? ELSE user_notes END
+                            user_notes = CASE WHEN ? != '' THEN ? ELSE user_notes END
                         WHERE deduplication_hash = ?
-                          AND (application_status = '📋 Por postular' OR user_notes = '')
                         """,
                         (
-                            data.get("application_status", "📋 Por postular"),
-                            data.get("applied_at"),
-                            data.get("user_notes", ""),
+                            mem_status,
+                            mem_applied,
+                            mem_notes,
+                            mem_notes,
                             dedup_hash,
                         ),
                     )
@@ -306,7 +309,7 @@ class DatabaseManager:
             conn.commit()
             if self.db_path != ":memory:":
                 try:
-                    conn.execute("PRAGMA wal_checkpoint(PASSIVE);")
+                    conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
                 except Exception:
                     pass
 
@@ -402,7 +405,7 @@ class DatabaseManager:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT 
-                    j.id, j.title, j.company, j.location, j.modality, j.url, j.salary, j.source,
+                    j.id, j.deduplication_hash, j.title, j.company, j.location, j.modality, j.url, j.salary, j.source,
                     j.raw_description, j.published_at, j.created_at,
                     COALESCE(j.application_status, '📋 Por postular') AS application_status,
                     j.applied_at,
@@ -416,6 +419,89 @@ class DatabaseManager:
                 ORDER BY e.final_ranking_score DESC
             """)
             return [dict(row) for row in cursor.fetchall()]
+
+    def export_crm_data(self) -> dict:
+        """Exporta todas las postulaciones modificadas y notas personales a un formato serializable."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT 
+                    j.id, j.deduplication_hash, j.title, j.company, j.location, j.modality, j.url,
+                    COALESCE(j.application_status, '📋 Por postular') AS application_status,
+                    j.applied_at,
+                    COALESCE(j.user_notes, '') AS user_notes
+                FROM job_listings j
+                WHERE (j.application_status IS NOT NULL AND j.application_status != '📋 Por postular')
+                   OR (j.user_notes IS NOT NULL AND j.user_notes != '')
+                ORDER BY j.id ASC
+            """)
+            rows = [dict(r) for r in cursor.fetchall()]
+            return {
+                "version": "1.0",
+                "total_items": len(rows),
+                "items": rows,
+            }
+
+    def import_crm_data(self, data: dict) -> int:
+        """Importa un diccionario de postulaciones previamente exportado y reconcilia con SQLite y crm_memory.json."""
+        items = data.get("items", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+        if not items:
+            return 0
+        updated = 0
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            for it in items:
+                dedup = it.get("deduplication_hash") or it.get("hash")
+                jid = it.get("id")
+                st_val = it.get("application_status", "📋 Por postular")
+                applied_at = it.get("applied_at")
+                notes = it.get("user_notes", "")
+                
+                if dedup:
+                    cursor.execute("""
+                        UPDATE job_listings
+                        SET application_status = ?,
+                            applied_at = COALESCE(?, applied_at),
+                            user_notes = CASE WHEN ? != '' THEN ? ELSE user_notes END
+                        WHERE deduplication_hash = ?
+                    """, (st_val, applied_at, notes, notes, dedup))
+                    if cursor.rowcount > 0:
+                        updated += 1
+                elif jid:
+                    cursor.execute("""
+                        UPDATE job_listings
+                        SET application_status = ?,
+                            applied_at = COALESCE(?, applied_at),
+                            user_notes = CASE WHEN ? != '' THEN ? ELSE user_notes END
+                        WHERE id = ?
+                    """, (st_val, applied_at, notes, notes, int(jid)))
+                    if cursor.rowcount > 0:
+                        updated += 1
+            conn.commit()
+            if self.db_path != ":memory:":
+                try:
+                    conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+                except Exception:
+                    pass
+
+        # Sincronizar espejo JSON
+        if self._memory_path:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                rows = cursor.execute("""
+                    SELECT deduplication_hash, application_status, applied_at, user_notes
+                    FROM job_listings
+                    WHERE application_status != '📋 Por postular' OR (user_notes IS NOT NULL AND user_notes != '')
+                """).fetchall()
+                memory = {}
+                for r in rows:
+                    memory[r["deduplication_hash"]] = {
+                        "application_status": r["application_status"],
+                        "applied_at": r["applied_at"],
+                        "user_notes": r["user_notes"] or "",
+                    }
+                self._save_crm_memory(memory)
+        return updated
 
     def get_top_ranked_jobs(self, min_score: float = 50.0, limit: int = 10) -> List[dict]:
         with self._get_connection() as conn:

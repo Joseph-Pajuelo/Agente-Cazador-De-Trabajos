@@ -85,3 +85,19 @@ def test_evaluation_workflow(temp_db):
     assert all_jobs[0]["application_status"] == "🚀 Postulado"
     assert all_jobs[0]["user_notes"] == "Envié CV de Datos"
     assert all_jobs[0]["applied_at"] is not None
+
+    # Probar exportación e importación de CRM
+    exported = temp_db.export_crm_data()
+    assert exported["total_items"] == 1
+    assert exported["items"][0]["id"] == listing_id
+    assert exported["items"][0]["application_status"] == "🚀 Postulado"
+
+    # Modificar y luego re-importar para verificar restauración
+    temp_db.update_application_status(listing_id, "📋 Por postular", notes="")
+    assert temp_db.get_all_evaluated_jobs()[0]["application_status"] == "📋 Por postular"
+
+    imported_cnt = temp_db.import_crm_data(exported)
+    assert imported_cnt == 1
+    re_checked = temp_db.get_all_evaluated_jobs()[0]
+    assert re_checked["application_status"] == "🚀 Postulado"
+    assert re_checked["user_notes"] == "Envié CV de Datos"

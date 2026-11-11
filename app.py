@@ -74,7 +74,7 @@ def _hot_reload_stale_project_modules() -> None:
 _hot_reload_stale_project_modules()
 
 from config.candidate_profile import CANDIDATE_PROFILE
-from storage.database import DatabaseManager, APPLICATION_STATUSES
+from storage.database import DatabaseManager, APPLICATION_STATUSES, _resolve_github_token
 from domain.ranking import (
     sort_by_modality_then_score,
     is_recommended,
@@ -421,9 +421,73 @@ def get_score_pill_html(score: float) -> str:
     return f"<span class='pill {cls}' style='font-size:0.78rem;padding:3px 10px;'>{score:.0f}% compatibilidad</span>"
 
 
-# ---------------- Gestión de Estado y Memoria Persistente ----------------
+# ---------------- Gestión de Estado y Memoria Persistente (Blindada contra F5 y Cloud Sleep) ----------------
+CRM_STATUS_TO_CODE = {
+    "⭐ Favorita": "F",
+    "🚀 Postulado": "P",
+    "🎤 En entrevista": "E",
+    "❌ Descartada por mí": "D",
+}
+CRM_CODE_TO_STATUS = {v: k for k, v in CRM_STATUS_TO_CODE.items()}
+
+
+def sync_crm_to_query_params():
+    """Sincroniza los estados modificados en la URL del navegador para persistencia infalible en F5 y cloud sleep."""
+    try:
+        items = []
+        for j in st.session_state.get("jobs_data", []):
+            st_val = j.get("application_status")
+            if st_val in CRM_STATUS_TO_CODE:
+                code = CRM_STATUS_TO_CODE[st_val]
+                items.append(f"{j['id']}:{code}")
+        if items:
+            st.query_params["crm"] = ",".join(items)
+        else:
+            if "crm" in st.query_params:
+                del st.query_params["crm"]
+    except Exception as e:
+        logger.debug(f"sync_crm_to_query_params error: {e}")
+
+
+def restore_crm_from_query_params() -> int:
+    """Restaura los estados CRM desde los parámetros URL si el contenedor arrancó de cero tras un sleep o F5."""
+    try:
+        crm_param = st.query_params.get("crm")
+        if not crm_param:
+            return 0
+        db = DatabaseManager()
+        pairs = crm_param.split(",")
+        restored = 0
+        for pair in pairs:
+            if ":" not in pair:
+                continue
+            jid_str, code = pair.split(":", 1)
+            try:
+                jid = int(jid_str)
+            except ValueError:
+                continue
+            target_status = CRM_CODE_TO_STATUS.get(code)
+            if not target_status:
+                continue
+            db.update_application_status(jid, target_status)
+            for j in st.session_state.get("jobs_data", []):
+                if int(j["id"]) == jid:
+                    if j.get("application_status") != target_status:
+                        j["application_status"] = target_status
+                        restored += 1
+                    break
+        return restored
+    except Exception as e:
+        logger.debug(f"restore_crm_from_query_params error: {e}")
+        return 0
+
+
 def refresh_jobs_in_state():
     st.session_state["jobs_data"] = DatabaseManager().get_all_evaluated_jobs()
+    restore_crm_from_query_params()
+    # Si no había parámetros en URL pero sí hay postulaciones en DB/memoria, registrarlas en URL
+    if not st.query_params.get("crm"):
+        sync_crm_to_query_params()
 
 
 if "jobs_data" not in st.session_state:
@@ -454,6 +518,7 @@ def update_job_crm(job_id: int, new_status: str, notes: str | None = None):
             break
 
     st.session_state["selected_job_id"] = int(job_id)
+    sync_crm_to_query_params()
 
 
 # --- Callbacks de widgets (se ejecutan ANTES del rerun: no requieren st.rerun manual) ---
@@ -483,6 +548,7 @@ def _save_note(job_id: int, status: str):
     notes = st.session_state.get(f"notes_input_{job_id}", "")
     update_job_crm(int(job_id), status, notes=notes)
     st.session_state["_pending_toast"] = "Nota guardada en memoria."
+    st.session_state["_crm_dirty"] = True
 
 
 all_adapter_names = [a.name for a in get_adapters()]
@@ -557,7 +623,44 @@ with hdr_col2:
             st.rerun()
 
 with hdr_col3:
-    with st.popover("Configuración IA", use_container_width=True):
+    with st.popover("Memoria y Motor IA", use_container_width=True):
+        st.markdown("#### Memoria CRM y Respaldo")
+        crm_export_data = DatabaseManager().export_crm_data()
+        crm_export_json = json.dumps(crm_export_data, ensure_ascii=False, indent=2)
+        st.download_button(
+            "💾 Descargar Respaldo CRM (.json)",
+            data=crm_export_json,
+            file_name="mis_postulaciones_radar.json",
+            mime="application/json",
+            use_container_width=True,
+            help="Descarga un archivo JSON con todas tus postuladas, favoritas, descartadas y notas personales.",
+        )
+
+        with st.expander("📥 Restaurar respaldo de postulaciones", expanded=False):
+            uploaded_crm = st.file_uploader(
+                "Subir archivo mis_postulaciones_radar.json",
+                type=["json"],
+                key="crm_file_uploader",
+                help="Sube tu archivo JSON para recuperar todas tus postulaciones y notas al instante.",
+            )
+            if uploaded_crm is not None:
+                try:
+                    import_content = json.load(uploaded_crm)
+                    imported_count = DatabaseManager().import_crm_data(import_content)
+                    refresh_jobs_in_state()
+                    st.success(f"¡Se restauraron {imported_count} registros exitosamente!")
+                    st.rerun(scope="app")
+                except Exception as ex:
+                    st.error(f"Error al restaurar respaldo: {ex}")
+
+        gh_token = _resolve_github_token()
+        if gh_token:
+            st.caption("🟢 **Nube GitHub activa:** Tus postulaciones se sincronizan automáticamente con tu repositorio.")
+        else:
+            st.caption("🛡️ **Persistencia en URL activa:** Tus postulaciones se guardan en la barra de direcciones (?crm=...) y resisten F5 y reinicios.")
+            st.caption("💡 *Opcional:* Para sincronizar en la nube entre diferentes navegadores, añade `GITHUB_TOKEN` en Secrets de Streamlit Cloud.")
+
+        st.divider()
         st.markdown("#### Motor LangGraph + Gemini CoT")
         if active_api_key:
             st.success(f"Clave activa ({JobMatcherAI.MODEL_ID})")
@@ -583,7 +686,7 @@ with hdr_col3:
                 except Exception:
                     pass
                 st.success("Clave guardada en memoria.")
-                st.rerun()
+                st.rerun(scope="app")
 
         st.divider()
         st.caption(
@@ -600,7 +703,7 @@ if not all_loaded_jobs:
 def render_interactive_workspace():
     # Un cambio de estado CRM actualiza también la cabecera (fuera del fragmento)
     if st.session_state.pop("_crm_dirty", False):
-        st.rerun()
+        st.rerun(scope="app")
     pending_toast = st.session_state.pop("_pending_toast", None)
     if pending_toast:
         st.toast(pending_toast)
