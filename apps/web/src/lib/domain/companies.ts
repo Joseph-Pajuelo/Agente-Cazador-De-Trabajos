@@ -510,7 +510,7 @@ export function resolveEmployer(
       publisher: company,
       clue: '',
       sector_hint: detectedSector,
-      via_agency: true,
+      via_agency: false,
     };
   }
 

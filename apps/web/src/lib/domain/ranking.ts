@@ -182,8 +182,14 @@ export function sortByModalityThenScore<
   T extends { modality?: string; final_ranking_score?: number }
 >(jobs: readonly T[]): T[] {
   return [...jobs].sort((a, b) => {
-    const modA = MODALITY_ORDER[a.modality || ''] ?? 9;
-    const modB = MODALITY_ORDER[b.modality || ''] ?? 9;
+    const modA =
+      a.modality && Object.hasOwn(MODALITY_ORDER, a.modality)
+        ? MODALITY_ORDER[a.modality]
+        : 9;
+    const modB =
+      b.modality && Object.hasOwn(MODALITY_ORDER, b.modality)
+        ? MODALITY_ORDER[b.modality]
+        : 9;
 
     if (modA !== modB) {
       return modA - modB;

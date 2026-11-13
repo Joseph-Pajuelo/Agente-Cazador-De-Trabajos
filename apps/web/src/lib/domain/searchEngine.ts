@@ -513,7 +513,7 @@ export function searchJobs(
   const effectiveQuery = corrected || qNorm;
   let queryTokens: string[];
   if (
-    effectiveQuery in SYNONYM_MAP ||
+    Object.hasOwn(SYNONYM_MAP, effectiveQuery) ||
     CANONICAL_VOCABULARY.includes(effectiveQuery)
   ) {
     queryTokens = [effectiveQuery];

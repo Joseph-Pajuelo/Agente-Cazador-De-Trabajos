@@ -132,7 +132,7 @@ describe('Companies & Employer Resolution', () => {
     expect(employer.via_agency).toBe(true);
   });
 
-  it('resolves sector hint for unknown client published by agency', () => {
+  it('resolves sector hint for unknown client published by agency and preserves via_agency === false', () => {
     const employer = resolveEmployer(
       'Experis',
       'Practicante Backend',
@@ -141,6 +141,18 @@ describe('Companies & Employer Resolution', () => {
     expect(employer.brand).toBeNull();
     expect(employer.basis).toBe('unknown');
     expect(employer.sector_hint).toBe('banca');
+    expect(employer.via_agency).toBe(false);
+  });
+
+  it('returns via_agency === false when basis === unknown for agency with no client clues', () => {
+    const employer = resolveEmployer(
+      'ManpowerGroup',
+      'Practicante de Archivo',
+      'Funciones administrativas generales en oficina'
+    );
+    expect(employer.brand).toBeNull();
+    expect(employer.basis).toBe('unknown');
+    expect(employer.via_agency).toBe(false);
   });
 
   it('exports resolveBrandOrSectorFromQuery for downstream filter builders', () => {
@@ -252,6 +264,16 @@ describe('Search Engine Parity', () => {
     const [corrected, suggestions] = suggestCorrections('pyhton');
     expect(corrected).toBe('python');
     expect(suggestions).toContain('python');
+  });
+
+  it('safely handles prototype property queries (constructor, toString) without crashing or false synonym match', () => {
+    const outcomeConstructor = searchJobs(sampleJobs, 'constructor');
+    expect(outcomeConstructor.jobs.length).toBe(0);
+    expect(outcomeConstructor.inferred_brand).toBeNull();
+
+    const outcomeToString = searchJobs(sampleJobs, 'toString');
+    expect(outcomeToString.jobs.length).toBe(0);
+    expect(outcomeToString.inferred_brand).toBeNull();
   });
 });
 
