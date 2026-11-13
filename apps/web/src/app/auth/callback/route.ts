@@ -1,33 +1,67 @@
 import { NextResponse } from 'next/server';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/server';
-import { sanitizeNextPath } from '@/lib/auth/safeRedirect';
+import { parseCallbackParams } from '@/lib/auth/authHelpers';
 
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
-  const code = requestUrl.searchParams.get('code');
-  const rawNext = requestUrl.searchParams.get('next');
+  const parsed = parseCallbackParams(requestUrl.searchParams);
 
-  // Strict check for relative redirect to prevent open redirect vulnerabilities (including backslash bypasses)
-  const safeNext = sanitizeNextPath(rawNext);
+  // If OAuth or provider returned an error, redirect directly to /login with error param
+  if (parsed.mode === 'error') {
+    return NextResponse.redirect(
+      new URL(
+        `/login?error=${encodeURIComponent(parsed.errorMessage || 'auth_failed')}`,
+        request.url
+      )
+    );
+  }
 
-  if (!code || !isSupabaseConfigured()) {
-    return NextResponse.redirect(new URL(safeNext, request.url));
+  // If Supabase is not configured or callback is empty, safely fallback to next path
+  if (!isSupabaseConfigured() || parsed.mode === 'empty') {
+    return NextResponse.redirect(new URL(parsed.next, request.url));
   }
 
   try {
     const supabase = await createClient();
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
 
-    if (error) {
-      console.error('Error exchanging auth code for session:', error);
-      return NextResponse.redirect(
-        new URL(`/login?error=auth_failed`, request.url)
-      );
+    if (parsed.mode === 'pkce' && parsed.code) {
+      const { error } = await supabase.auth.exchangeCodeForSession(parsed.code);
+
+      if (error) {
+        console.error('Error exchanging auth code for session:', error);
+        return NextResponse.redirect(
+          new URL(
+            `/login?error=${encodeURIComponent(error.message || 'auth_failed')}`,
+            request.url
+          )
+        );
+      }
+
+      return NextResponse.redirect(new URL(parsed.next, request.url));
     }
 
-    return NextResponse.redirect(new URL(safeNext, request.url));
+    if (parsed.mode === 'otp' && parsed.tokenHash && parsed.type) {
+      const { error } = await supabase.auth.verifyOtp({
+        type: parsed.type,
+        token_hash: parsed.tokenHash,
+      });
+
+      if (error) {
+        console.error('Error verifying auth OTP token:', error);
+        return NextResponse.redirect(
+          new URL(
+            `/login?error=${encodeURIComponent(error.message || 'auth_failed')}`,
+            request.url
+          )
+        );
+      }
+
+      return NextResponse.redirect(new URL(parsed.next, request.url));
+    }
+
+    return NextResponse.redirect(new URL(parsed.next, request.url));
   } catch (err) {
-    console.error('OAuth callback exception:', err);
+    console.error('Auth callback exception:', err);
     return NextResponse.redirect(
       new URL(`/login?error=auth_failed`, request.url)
     );
