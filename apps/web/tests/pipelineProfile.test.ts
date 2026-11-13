@@ -15,6 +15,7 @@ import {
 } from '../src/lib/profile/profileFormHelpers';
 import { validateProfileUpdatePayload } from '../src/actions/profile';
 import { JobSummary, UserProfile } from '../src/lib/domain/types';
+import { calculatePipelineCounts } from '../src/lib/supabase/queries';
 
 describe('Task 6: Pipeline Board & Profile Form Helpers', () => {
   const sampleJobs: JobSummary[] = [
@@ -220,6 +221,50 @@ describe('Task 6: Pipeline Board & Profile Form Helpers', () => {
 
         const rolledBack = rollbackPipelineJobs(snapshot);
         expect(rolledBack.find((j) => j.id === 1)?.user_status).toBe('favorite');
+      });
+    });
+
+    describe('calculatePipelineCounts (Navbar badge support)', () => {
+      it('returns zero counts for empty user job states', () => {
+        const counts = calculatePipelineCounts([]);
+        expect(counts).toEqual({
+          favoriteCount: 0,
+          appliedCount: 0,
+          interviewCount: 0,
+          discardedCount: 0,
+          totalTracked: 0,
+        });
+      });
+
+      it('accurately calculates favoriteCount, appliedCount, and totalTracked for Navbar badges', () => {
+        const mockStates = [
+          { status: 'favorite' },
+          { status: 'favorite' },
+          { status: 'applied' },
+          { status: 'applied' },
+          { status: 'applied' },
+          { status: 'interview' },
+          { status: 'discarded' },
+          { status: 'to_apply' }, // uncurated radar listing
+        ];
+
+        const counts = calculatePipelineCounts(mockStates);
+
+        expect(counts.favoriteCount).toBe(2);
+        expect(counts.appliedCount).toBe(3);
+        expect(counts.interviewCount).toBe(1);
+        expect(counts.discardedCount).toBe(1);
+        expect(counts.totalTracked).toBe(7); // excludes to_apply from active pipeline
+      });
+
+      it('handles null/undefined status entries without error', () => {
+        const counts = calculatePipelineCounts([
+          { status: null },
+          { status: undefined },
+          { status: 'applied' },
+        ]);
+        expect(counts.appliedCount).toBe(1);
+        expect(counts.totalTracked).toBe(1);
       });
     });
   });

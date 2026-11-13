@@ -415,3 +415,75 @@ export async function getUserProfile(): Promise<UserProfile | null> {
     return null;
   }
 }
+
+export interface UserPipelineCounts {
+  favoriteCount: number;
+  appliedCount: number;
+  interviewCount: number;
+  discardedCount: number;
+  totalTracked: number;
+}
+
+export function calculatePipelineCounts(
+  userStates: Array<{ status?: string | null }>
+): UserPipelineCounts {
+  let favoriteCount = 0;
+  let appliedCount = 0;
+  let interviewCount = 0;
+  let discardedCount = 0;
+
+  for (const s of userStates) {
+    if (s.status === 'favorite') favoriteCount++;
+    else if (s.status === 'applied') appliedCount++;
+    else if (s.status === 'interview') interviewCount++;
+    else if (s.status === 'discarded') discardedCount++;
+  }
+
+  return {
+    favoriteCount,
+    appliedCount,
+    interviewCount,
+    discardedCount,
+    totalTracked: favoriteCount + appliedCount + interviewCount + discardedCount,
+  };
+}
+
+export async function getUserPipelineCounts(): Promise<UserPipelineCounts> {
+  const defaultCounts: UserPipelineCounts = {
+    favoriteCount: 0,
+    appliedCount: 0,
+    interviewCount: 0,
+    discardedCount: 0,
+    totalTracked: 0,
+  };
+
+  if (!isSupabaseConfigured()) {
+    return defaultCounts;
+  }
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return defaultCounts;
+    }
+
+    const { data, error } = await supabase
+      .from('user_job_states')
+      .select('status')
+      .eq('user_id', user.id);
+
+    if (error || !data) {
+      return defaultCounts;
+    }
+
+    return calculatePipelineCounts(data);
+  } catch (err) {
+    console.error('getUserPipelineCounts error:', err);
+    return defaultCounts;
+  }
+}
+

@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { ShieldAlert, ArrowLeft } from 'lucide-react';
 import { isSupabaseConfigured, createClient } from '@/lib/supabase/server';
-import { getUserProfile } from '@/lib/supabase/queries';
+import { getUserProfile, getUserPipelineCounts } from '@/lib/supabase/queries';
 import { Navbar } from '@/components/layout/Navbar';
 import { ProfileForm } from '@/components/profile/ProfileForm';
 
@@ -50,11 +50,18 @@ export default async function ProfilePage() {
     redirect('/login?next=/profile');
   }
 
-  const profile = await getUserProfile();
+  const [profile, pipelineCounts] = await Promise.all([
+    getUserProfile(),
+    getUserPipelineCounts(),
+  ]);
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      <Navbar user={{ id: user.id, email: user.email }} />
+      <Navbar
+        user={{ id: user.id, email: user.email }}
+        favoriteCount={pipelineCounts.favoriteCount}
+        appliedCount={pipelineCounts.appliedCount}
+      />
 
       <main className="flex-1 mx-auto max-w-7xl w-full px-4 sm:px-6 lg:px-8 py-8">
         <ProfileForm initialProfile={profile} userEmail={user.email} />
