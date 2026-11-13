@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Plus_Jakarta_Sans, Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
+import { AuthSessionSync } from '@/components/auth/AuthSessionSync';
 
 const plusJakartaSans = Plus_Jakarta_Sans({
   subsets: ['latin'],
@@ -36,6 +37,7 @@ export default function RootLayout({
       className={`${plusJakartaSans.variable} ${inter.variable} ${jetbrainsMono.variable}`}
     >
       <body className="min-h-screen bg-slate-50 text-slate-900 antialiased font-sans">
+        <AuthSessionSync />
         {children}
       </body>
     </html>

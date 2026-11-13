@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { ShieldAlert, ArrowLeft } from 'lucide-react';
 import { isSupabaseConfigured, createClient } from '@/lib/supabase/server';
 import { getUserPipelineJobs } from '@/lib/supabase/queries';
-import { Navbar } from '@/components/layout/Navbar';
+import { AppShell } from '@/components/layout/AppShell';
 import { PipelineBoard } from '@/components/pipeline/PipelineBoard';
 
 export const dynamic = 'force-dynamic';
@@ -11,8 +11,7 @@ export const dynamic = 'force-dynamic';
 export default async function PipelinePage() {
   if (!isSupabaseConfigured()) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col">
-        <Navbar user={null} />
+      <AppShell user={null}>
         <main className="flex-1 mx-auto max-w-2xl w-full px-4 py-16 flex items-center justify-center">
           <div className="rounded-2xl border border-amber-200 bg-white p-8 shadow-xs text-center">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-amber-50 text-amber-700 border border-amber-200 mb-4">
@@ -37,7 +36,7 @@ export default async function PipelinePage() {
             </div>
           </div>
         </main>
-      </div>
+      </AppShell>
     );
   }
 
@@ -54,21 +53,26 @@ export default async function PipelinePage() {
 
   const favoriteCount = jobs.filter((j) => j.user_status === 'favorite').length;
   const appliedCount = jobs.filter((j) => j.user_status === 'applied').length;
+  const interviewCount = jobs.filter((j) => j.user_status === 'interview').length;
+  const discardedCount = jobs.filter((j) => j.user_status === 'discarded').length;
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
-      <Navbar
-        user={{ id: user.id, email: user.email }}
-        favoriteCount={favoriteCount}
-        appliedCount={appliedCount}
-      />
-
+    <AppShell
+      user={{ id: user.id, email: user.email }}
+      pipelineCounts={{
+        favoriteCount,
+        appliedCount,
+        interviewCount,
+        discardedCount,
+        totalTracked: favoriteCount + appliedCount + interviewCount + discardedCount,
+      }}
+    >
       <main className="flex-1 mx-auto max-w-7xl w-full px-4 sm:px-6 lg:px-8 py-8">
         <PipelineBoard
           initialJobs={jobs}
           user={{ id: user.id, email: user.email }}
         />
       </main>
-    </div>
+    </AppShell>
   );
 }
