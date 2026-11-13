@@ -1,0 +1,417 @@
+import { createClient, isSupabaseConfigured } from './server';
+import { JobSummary, UserProfile, CrmStatus } from '../domain/types';
+import { resolveBrandOrSectorFromQuery } from '../domain/companies';
+import { suggestCorrections } from '../domain/searchEngine';
+
+export interface HistoricalSearchParams {
+  query?: string;
+  includeDiscardedAi?: boolean;
+  minScore?: number;
+  modalities?: string[];
+  sources?: string[];
+  maxAgeDays?: number | null;
+  offset?: number;
+  limit?: number;
+}
+
+export interface HistoricalSearchFilters {
+  brandKey: string | null;
+  sectorHint: string | null;
+  ftsQuery: string | null;
+  didYouMean: string | null;
+  minScore: number;
+  includeDiscardedAi: boolean;
+  modalities: string[];
+  sources: string[];
+  cutoffDate: string | null;
+}
+
+export const LIGHTWEIGHT_JOB_SELECT = `
+  id,
+  deduplication_hash,
+  source,
+  title,
+  company,
+  location,
+  modality,
+  url,
+  salary,
+  published_at,
+  published_date,
+  status,
+  created_at,
+  resolved_brand_key,
+  resolved_via_agency,
+  agency_clue,
+  sector_hint
+`;
+
+export const JOB_WITH_EVALUATION_SELECT = `
+  ${LIGHTWEIGHT_JOB_SELECT},
+  job_evaluations (
+    id,
+    listing_id,
+    profile_id,
+    is_pre_professional,
+    is_unrealistic_or_smoke,
+    technical_match_score,
+    modality_score,
+    location_score,
+    final_ranking_score,
+    matching_skills,
+    missing_skills,
+    verdict_summary,
+    engine,
+    evaluated_at
+  )
+`;
+
+export function mapRowToJobSummary(
+  row: Record<string, unknown>,
+  userState?: { status: CrmStatus; applied_at?: string | null; notes?: string } | null
+): JobSummary {
+  const evaluations = row.job_evaluations as
+    | Array<Record<string, unknown>>
+    | Record<string, unknown>
+    | undefined;
+
+  const ev: Record<string, unknown> | undefined = Array.isArray(evaluations)
+    ? evaluations.find((e) => !e.profile_id) || evaluations[0]
+    : evaluations;
+
+  return {
+    id: row.id as number | string,
+    deduplication_hash: String(row.deduplication_hash || ''),
+    source: String(row.source || ''),
+    title: String(row.title || ''),
+    company: String(row.company || ''),
+    location: (row.location as string) || 'Lima, Perú',
+    modality: (row.modality as string) || 'No especificado',
+    url: String(row.url || ''),
+    salary: (row.salary as string | null) ?? null,
+    published_at: (row.published_at as string | null) ?? null,
+    published_date: (row.published_date as string | null) ?? null,
+    status: row.status as string | undefined,
+    created_at: row.created_at as string | undefined,
+    resolved_brand_key: (row.resolved_brand_key as string | null) ?? null,
+    resolved_via_agency: Boolean(row.resolved_via_agency),
+    agency_clue: (row.agency_clue as string) ?? '',
+    sector_hint: (row.sector_hint as string | null) ?? null,
+
+    is_pre_professional: ev?.is_pre_professional as boolean | undefined,
+    is_unrealistic_or_smoke: ev?.is_unrealistic_or_smoke as boolean | undefined,
+    technical_match_score:
+      ev?.technical_match_score !== undefined && ev?.technical_match_score !== null
+        ? Number(ev.technical_match_score)
+        : undefined,
+    modality_score:
+      ev?.modality_score !== undefined && ev?.modality_score !== null
+        ? Number(ev.modality_score)
+        : undefined,
+    location_score:
+      ev?.location_score !== undefined && ev?.location_score !== null
+        ? Number(ev.location_score)
+        : undefined,
+    final_ranking_score:
+      ev?.final_ranking_score !== undefined && ev?.final_ranking_score !== null
+        ? Number(ev.final_ranking_score)
+        : undefined,
+    matching_skills: Array.isArray(ev?.matching_skills)
+      ? (ev.matching_skills as string[])
+      : [],
+    missing_skills: Array.isArray(ev?.missing_skills)
+      ? (ev.missing_skills as string[])
+      : [],
+    verdict_summary: (ev?.verdict_summary as string) ?? '',
+    engine: ev?.engine as string | undefined,
+
+    user_status: userState?.status ?? null,
+    applied_at: userState?.applied_at ?? null,
+    user_notes: userState?.notes ?? null,
+  };
+}
+
+export function buildHistoricalSearchFilters(
+  params: HistoricalSearchParams
+): HistoricalSearchFilters {
+  const rawQuery = (params.query || '').trim();
+  const minScore = typeof params.minScore === 'number' ? params.minScore : 0;
+  const includeDiscardedAi = Boolean(params.includeDiscardedAi);
+  const modalities = Array.isArray(params.modalities) ? params.modalities : [];
+  const sources = Array.isArray(params.sources) ? params.sources : [];
+
+  const cutoffDate =
+    typeof params.maxAgeDays === 'number' && params.maxAgeDays > 0
+      ? new Date(Date.now() - params.maxAgeDays * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .split('T')[0]
+      : null;
+
+  if (!rawQuery) {
+    return {
+      brandKey: null,
+      sectorHint: null,
+      ftsQuery: null,
+      didYouMean: null,
+      minScore,
+      includeDiscardedAi,
+      modalities,
+      sources,
+      cutoffDate,
+    };
+  }
+
+  // 1. Run typo correction first
+  const [correctedQuery, didYouMeanList] = suggestCorrections(rawQuery);
+  const didYouMean =
+    correctedQuery && correctedQuery !== rawQuery.toLowerCase()
+      ? correctedQuery
+      : didYouMeanList && didYouMeanList.length > 0 && didYouMeanList[0] !== rawQuery.toLowerCase()
+      ? didYouMeanList[0]
+      : null;
+
+  const targetQuery = correctedQuery || rawQuery;
+
+  // 2. Resolve brand or sector from the corrected target query
+  const { brandKey, sectorHint } = resolveBrandOrSectorFromQuery(targetQuery);
+
+  const ftsQuery = correctedQuery || rawQuery;
+
+  return {
+    brandKey,
+    sectorHint,
+    ftsQuery,
+    didYouMean,
+    minScore,
+    includeDiscardedAi,
+    modalities,
+    sources,
+    cutoffDate,
+  };
+}
+
+export interface AuthUserInfo {
+  id: string;
+  email?: string;
+}
+
+export async function getInitialRadarData(): Promise<{
+  jobs: JobSummary[];
+  user: AuthUserInfo | null;
+  lastUpdated: string | null;
+  isConfigured: boolean;
+}> {
+  if (!isSupabaseConfigured()) {
+    return {
+      jobs: [],
+      user: null,
+      lastUpdated: null,
+      isConfigured: false,
+    };
+  }
+
+  try {
+    const supabase = await createClient();
+
+    // 1. Fetch authenticated user (if any)
+    let authUser: AuthUserInfo | null = null;
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) {
+        authUser = { id: user.id, email: user.email };
+      }
+    } catch {
+      authUser = null;
+    }
+
+    // 2. Fetch recent evaluated jobs (<= 45d, limit 600)
+    const cutoff45d = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .split('T')[0];
+
+    const { data: rawListings, error } = await supabase
+      .from('job_listings')
+      .select(JOB_WITH_EVALUATION_SELECT)
+      .or(`published_date.gte.${cutoff45d},published_date.is.null`)
+      .order('created_at', { ascending: false })
+      .limit(600);
+
+    if (error) {
+      console.error('getInitialRadarData job_listings error:', error);
+      return {
+        jobs: [],
+        user: authUser,
+        lastUpdated: null,
+        isConfigured: true,
+      };
+    }
+
+    let listings = rawListings || [];
+
+    // 3. If user is signed in, fetch user_job_states and any older user-tracked listings
+    const userStateMap = new Map<
+      number,
+      { status: CrmStatus; applied_at?: string | null; notes?: string }
+    >();
+
+    if (authUser) {
+      const { data: userStates } = await supabase
+        .from('user_job_states')
+        .select('listing_id, status, applied_at, notes')
+        .eq('user_id', authUser.id);
+
+      if (userStates) {
+        for (const s of userStates) {
+          userStateMap.set(Number(s.listing_id), {
+            status: s.status as CrmStatus,
+            applied_at: s.applied_at,
+            notes: s.notes,
+          });
+        }
+
+        // Check if there are user-tracked listings older than 45d not in the fetched batch
+        const existingIds = new Set(listings.map((l: Record<string, unknown>) => Number(l.id)));
+        const missingIds = userStates
+          .map((s: { listing_id: number | string }) => Number(s.listing_id))
+          .filter((id) => !existingIds.has(id));
+
+        if (missingIds.length > 0) {
+          const { data: extraListings } = await supabase
+            .from('job_listings')
+            .select(JOB_WITH_EVALUATION_SELECT)
+            .in('id', missingIds);
+
+          if (extraListings) {
+            listings = [...listings, ...extraListings];
+          }
+        }
+      }
+    }
+
+    // 4. Map to JobSummary array and compute lastUpdated
+    let maxTimestamp: string | null = null;
+    const jobs: JobSummary[] = listings.map((row: Record<string, unknown>) => {
+      const ts = row.created_at as string | undefined;
+      if (ts && (!maxTimestamp || ts > maxTimestamp)) {
+        maxTimestamp = ts;
+      }
+      const userState = userStateMap.get(Number(row.id)) || null;
+      return mapRowToJobSummary(row, userState);
+    });
+
+    return {
+      jobs,
+      user: authUser,
+      lastUpdated: maxTimestamp,
+      isConfigured: true,
+    };
+  } catch (err) {
+    console.error('getInitialRadarData error:', err);
+    return {
+      jobs: [],
+      user: null,
+      lastUpdated: null,
+      isConfigured: false,
+    };
+  }
+}
+
+export async function getUserPipelineJobs(): Promise<JobSummary[]> {
+  if (!isSupabaseConfigured()) {
+    return [];
+  }
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return [];
+    }
+
+    const { data: userStates, error: stateError } = await supabase
+      .from('user_job_states')
+      .select('listing_id, status, applied_at, notes')
+      .eq('user_id', user.id);
+
+    if (stateError || !userStates || userStates.length === 0) {
+      return [];
+    }
+
+    // Filter to listings with status != 'to_apply' OR non-empty notes
+    const activeStates = userStates.filter(
+      (s: { status: string; notes?: string | null }) =>
+        s.status !== 'to_apply' || (s.notes && s.notes.trim().length > 0)
+    );
+
+    if (activeStates.length === 0) {
+      return [];
+    }
+
+    const activeMap = new Map<
+      number,
+      { status: CrmStatus; applied_at?: string | null; notes?: string }
+    >();
+    for (const s of activeStates) {
+      activeMap.set(Number(s.listing_id), {
+        status: s.status as CrmStatus,
+        applied_at: s.applied_at,
+        notes: s.notes,
+      });
+    }
+
+    const listingIds = Array.from(activeMap.keys());
+    const { data: listings, error: listingsError } = await supabase
+      .from('job_listings')
+      .select(JOB_WITH_EVALUATION_SELECT)
+      .in('id', listingIds);
+
+    if (listingsError || !listings) {
+      return [];
+    }
+
+    return listings.map((row: Record<string, unknown>) => {
+      const state = activeMap.get(Number(row.id));
+      return mapRowToJobSummary(row, state);
+    });
+  } catch (err) {
+    console.error('getUserPipelineJobs error:', err);
+    return [];
+  }
+}
+
+export async function getUserProfile(): Promise<UserProfile | null> {
+  if (!isSupabaseConfigured()) {
+    return null;
+  }
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return null;
+    }
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single();
+
+    if (error || !data) {
+      return null;
+    }
+
+    return data as UserProfile;
+  } catch (err) {
+    console.error('getUserProfile error:', err);
+    return null;
+  }
+}
