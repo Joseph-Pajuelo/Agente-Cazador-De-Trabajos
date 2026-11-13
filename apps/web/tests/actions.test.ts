@@ -6,12 +6,14 @@ import {
   updateProfile,
 } from '../src/actions/profile';
 import { shouldRedirectToLogin } from '../src/lib/supabase/middleware';
-import { buildHistoricalSearchFilters } from '../src/lib/supabase/queries';
+import {
+  buildHistoricalSearchFilters,
+  buildHistoricalSupabaseQuery,
+} from '../src/lib/supabase/queries';
 import {
   getJobDetail,
   getJobDescription,
   searchHistoricalJobs,
-  buildHistoricalSupabaseQuery,
 } from '../src/actions/jobs';
 import * as supabaseServer from '../src/lib/supabase/server';
 

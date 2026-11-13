@@ -1,99 +1,237 @@
 'use client';
 
 import React, { useTransition } from 'react';
-import { AlertCircle, Inbox, Loader2, ArrowDown } from 'lucide-react';
-import { JobSummary, CrmStatus } from '@/lib/domain/types';
+import {
+  AlertCircle,
+  Inbox,
+  Loader2,
+  ArrowDown,
+  Sliders,
+  X,
+} from 'lucide-react';
+import { JobSummary, CrmStatus, ReasoningChain } from '@/lib/domain/types';
 import {
   WorkspaceFilters,
-  DEFAULT_WORKSPACE_FILTERS,
+  WorkspaceCrmTab,
+  WorkspaceSortBy,
   computeCrmCounts,
   requiresHistoricalQuery,
   canMutateCrm,
   applyOptimisticCrmTransition,
+  rollbackJobTransition,
   filterAndSortWorkspaceJobs,
+  computeDistrictFacetCounts,
+  computeCategoryFacetCounts,
+  CrmCounts,
 } from '@/lib/jobs/workspaceState';
+import {
+  parseFiltersFromSearchParams,
+  serializeFiltersToSearchParams,
+  reconcileProfileExclusions,
+} from '@/lib/jobs/urlFilterParams';
 import { upsertJobState } from '@/actions/crm';
-import { getJobDescription, searchHistoricalJobs } from '@/actions/jobs';
-import { FilterBar } from './FilterBar';
+import { getJobDetail, searchHistoricalJobs } from '@/actions/jobs';
+import { isPointerEventOutsideRect } from '@/lib/auth/authHelpers';
+import { AppShell } from '@/components/layout/AppShell';
+import { FilterSidebar, clearFilterCriteria, resetFilterCriteriaToDefaults } from './FilterSidebar';
 import { JobCard } from './JobCard';
-import { JobDetail } from './JobDetail';
+import { JobDetailDrawer } from './JobDetailDrawer';
 import { AuthModal } from '../auth/AuthModal';
 
-interface JobsWorkspaceProps {
+export interface JobsWorkspaceProps {
   initialJobs: JobSummary[];
   user: { id: string; email?: string | null } | null;
+  profileExcludedDistricts?: string[];
   lastUpdated: string | null;
   isConfigured: boolean;
-  onOpenAuthModal?: () => void;
+  initialSearchParams?: Record<string, string | string[] | undefined>;
+}
+
+const CRM_WORKSPACE_TABS: { key: WorkspaceCrmTab; label: string; countKey: keyof CrmCounts }[] = [
+  { key: 'activas', label: 'Activas', countKey: 'activas' },
+  { key: 'to_apply', label: 'Por postular', countKey: 'to_apply' },
+  { key: 'favorite', label: 'Destacadas', countKey: 'favorite' },
+  { key: 'applied', label: 'Postuladas', countKey: 'applied' },
+  { key: 'interview', label: 'Entrevista', countKey: 'interview' },
+  { key: 'discarded', label: 'Descartadas', countKey: 'discarded' },
+  { key: 'todas', label: 'Todas', countKey: 'todas' },
+];
+
+interface JobDetailCacheEntry {
+  rawDescription: string | null;
+  reasoningChain: ReasoningChain | null;
 }
 
 export function JobsWorkspace({
   initialJobs,
   user,
+  profileExcludedDistricts,
+  lastUpdated,
   isConfigured,
+  initialSearchParams,
 }: JobsWorkspaceProps) {
   const [, startTransition] = useTransition();
 
-  // Primary workspace state
-  const [jobs, setJobs] = React.useState<JobSummary[]>(initialJobs);
-  const [filters, setFilters] = React.useState<WorkspaceFilters>(
-    DEFAULT_WORKSPACE_FILTERS
+  // 1. URL & Filter Hydration
+  const initialParsed = React.useMemo(
+    () => parseFiltersFromSearchParams(initialSearchParams ?? {}, profileExcludedDistricts),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
   );
 
-  // Synchronize initialJobs when props change (e.g., after router.refresh() upon login)
+  const [filters, setFilters] = React.useState<WorkspaceFilters>(initialParsed.filters);
+  const [hasExplicitExclParam, setHasExplicitExclParam] = React.useState<boolean>(
+    initialParsed.hasExplicitExclParam
+  );
+  const [selectedJobId, setSelectedJobId] = React.useState<number | string | null>(
+    initialParsed.urlSelectedJobId ?? null
+  );
+
+  // 2. Primary jobs pool
+  const [jobs, setJobs] = React.useState<JobSummary[]>(initialJobs);
+
   React.useEffect(() => {
     setJobs(initialJobs);
   }, [initialJobs]);
 
-  // Selected job
-  const [selectedJobId, setSelectedJobId] = React.useState<number | string | null>(
-    initialJobs.length > 0 ? initialJobs[0].id : null
-  );
+  // Reconcile profile exclusions when profileExcludedDistricts changes
+  React.useEffect(() => {
+    if (profileExcludedDistricts) {
+      setFilters((prev) =>
+        reconcileProfileExclusions(prev, hasExplicitExclParam, profileExcludedDistricts)
+      );
+    }
+  }, [profileExcludedDistricts, hasExplicitExclParam]);
 
-  // Explicit mobile drawer visibility (starts closed on mobile to prevent full-screen lock)
-  const [isMobileDetailOpen, setIsMobileDetailOpen] = React.useState<boolean>(false);
+  // URL Synchronization via replaceState (skip initial mount to avoid hydration mismatch)
+  const isInitialMount = React.useRef(true);
+  React.useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+    if (typeof window === 'undefined') return;
 
-  // Description cache: listingId -> text
-  const [descriptions, setDescriptions] = React.useState<Record<string, string>>({});
-  const descriptionsRef = React.useRef<Record<string, string>>({});
-  descriptionsRef.current = descriptions;
+    const params = serializeFiltersToSearchParams(
+      filters,
+      profileExcludedDistricts,
+      selectedJobId
+    );
+    const qs = params.toString();
+    const nextUrl = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
+    window.history.replaceState(null, '', nextUrl);
+  }, [filters, profileExcludedDistricts, selectedJobId]);
 
-  // Track the exact job ID currently being loaded to eliminate race conditions
-  const [loadingDescriptionJobId, setLoadingDescriptionJobId] = React.useState<string | null>(null);
-
-  // Guest AuthModal
-  const [isAuthModalOpen, setIsAuthModalOpen] = React.useState(false);
-  const [authPrompt, setAuthPrompt] = React.useState<string>(
-    'Inicia sesión o crea una cuenta gratis para guardar y gestionar vacantes en tu radar personal.'
-  );
-
-  // Transient error message for failed mutations
-  const [actionError, setActionError] = React.useState<string | null>(null);
-
-  // Historical query pagination state
+  // 3. Historical query pagination state (Task 4 nextOffset integration)
+  const isHistorical = requiresHistoricalQuery(filters);
   const [historicalJobs, setHistoricalJobs] = React.useState<JobSummary[]>([]);
-  const [historicalOffset, setHistoricalOffset] = React.useState<number>(0);
+  const [historicalNextOffset, setHistoricalNextOffset] = React.useState<number>(0);
   const [historicalHasMore, setHistoricalHasMore] = React.useState<boolean>(false);
   const [isLoadingHistorical, setIsLoadingHistorical] = React.useState<boolean>(false);
 
-  const isHistorical = requiresHistoricalQuery(filters);
-
-  // Handle Escape key to close mobile drawer
   React.useEffect(() => {
-    if (!isMobileDetailOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setIsMobileDetailOpen(false);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isMobileDetailOpen]);
+    if (!isHistorical) {
+      setHistoricalJobs([]);
+      setHistoricalNextOffset(0);
+      setHistoricalHasMore(false);
+      return;
+    }
 
-  // Pool of jobs for filtering
+    let isMounted = true;
+    setIsLoadingHistorical(true);
+
+    searchHistoricalJobs({
+      query: filters.search,
+      includeDiscardedAi: filters.includeDiscardedAi,
+      minScore: filters.minScore,
+      modalities: filters.modalities,
+      sources: filters.sources,
+      maxAgeDays: null,
+      offset: 0,
+      limit: 20,
+      includedDistricts: filters.includedDistricts,
+      excludedDistricts: filters.excludedDistricts,
+      keepRemoteWhenDistrictFiltered: filters.keepRemoteWhenDistrictFiltered,
+      includeLimaUnspecifiedDistrict: filters.includeLimaUnspecifiedDistrict,
+      categories: filters.categories,
+      roleLevels: filters.roleLevels,
+      englishOnly: filters.englishOnly,
+      englishLevels: filters.englishLevels,
+      salaryFilter: filters.salaryFilter,
+    })
+      .then((res) => {
+        if (!isMounted) return;
+        setHistoricalJobs(res.jobs);
+        setHistoricalNextOffset(res.nextOffset ?? res.jobs.length);
+        setHistoricalHasMore(res.hasMore);
+      })
+      .catch((err) => {
+        console.error('Historical search failed:', err);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingHistorical(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [
+    isHistorical,
+    filters.search,
+    filters.includeDiscardedAi,
+    filters.minScore,
+    filters.modalities,
+    filters.sources,
+    filters.includedDistricts,
+    filters.excludedDistricts,
+    filters.keepRemoteWhenDistrictFiltered,
+    filters.includeLimaUnspecifiedDistrict,
+    filters.categories,
+    filters.roleLevels,
+    filters.englishOnly,
+    filters.englishLevels,
+    filters.salaryFilter,
+  ]);
+
+  const handleLoadMoreHistorical = async () => {
+    if (isLoadingHistorical || !historicalHasMore) return;
+    setIsLoadingHistorical(true);
+
+    try {
+      const currentOffset = historicalNextOffset;
+      const res = await searchHistoricalJobs({
+        query: filters.search,
+        includeDiscardedAi: filters.includeDiscardedAi,
+        minScore: filters.minScore,
+        modalities: filters.modalities,
+        sources: filters.sources,
+        maxAgeDays: null,
+        offset: currentOffset,
+        limit: 20,
+        includedDistricts: filters.includedDistricts,
+        excludedDistricts: filters.excludedDistricts,
+        keepRemoteWhenDistrictFiltered: filters.keepRemoteWhenDistrictFiltered,
+        includeLimaUnspecifiedDistrict: filters.includeLimaUnspecifiedDistrict,
+        categories: filters.categories,
+        roleLevels: filters.roleLevels,
+        englishOnly: filters.englishOnly,
+        englishLevels: filters.englishLevels,
+        salaryFilter: filters.salaryFilter,
+      });
+
+      setHistoricalJobs((prev) => [...prev, ...res.jobs]);
+      setHistoricalNextOffset(res.nextOffset ?? (currentOffset + res.jobs.length));
+      setHistoricalHasMore(res.hasMore);
+    } catch (err) {
+      console.error('Error loading more historical jobs:', err);
+    } finally {
+      setIsLoadingHistorical(false);
+    }
+  };
+
+  // 4. Effective Pool, Facets, Filtering & Sorting
   const effectivePool = React.useMemo(() => {
     if (isHistorical && historicalJobs.length > 0) {
-      // Merge unique by deduplication_hash or id
       const seen = new Set<string>();
       const combined: JobSummary[] = [];
 
@@ -109,7 +247,6 @@ export function JobsWorkspace({
     return jobs;
   }, [jobs, historicalJobs, isHistorical]);
 
-  // Compute live counts
   const counts = React.useMemo(
     () =>
       computeCrmCounts(effectivePool, {
@@ -118,163 +255,122 @@ export function JobsWorkspace({
     [effectivePool, filters.includeDiscardedAi]
   );
 
-  // Filter and sort
+  const districtCounts = React.useMemo(
+    () => computeDistrictFacetCounts(effectivePool, filters),
+    [effectivePool, filters]
+  );
+
+  const categoryCounts = React.useMemo(
+    () => computeCategoryFacetCounts(effectivePool, filters),
+    [effectivePool, filters]
+  );
+
   const { jobs: filteredJobs, didYouMean, correctedQuery } = React.useMemo(
     () => filterAndSortWorkspaceJobs(effectivePool, filters),
     [effectivePool, filters]
   );
 
-  // Currently selected job object
+  // 5. Selected Job & Navigation in Drawer
   const selectedJob = React.useMemo(() => {
-    if (!selectedJobId) return filteredJobs[0] || null;
-    return (
-      filteredJobs.find((j) => String(j.id) === String(selectedJobId)) ||
-      filteredJobs[0] ||
-      null
-    );
+    if (!selectedJobId) return null;
+    return filteredJobs.find((j) => String(j.id) === String(selectedJobId)) || null;
   }, [filteredJobs, selectedJobId]);
 
-  // Derived loading state comparing against currently selected job
-  const isLoadingDescription = Boolean(
-    selectedJob && loadingDescriptionJobId === String(selectedJob.id)
-  );
+  const selectedJobIndex = React.useMemo(() => {
+    if (!selectedJob) return -1;
+    return filteredJobs.findIndex((j) => String(j.id) === String(selectedJob.id));
+  }, [filteredJobs, selectedJob]);
 
-  // Fetch description when selected job changes
-  const selectedListingId = selectedJob ? selectedJob.id : null;
+  const hasPrev = selectedJobIndex > 0;
+  const hasNext = selectedJobIndex >= 0 && selectedJobIndex < filteredJobs.length - 1;
+
+  const handlePrevJob = () => {
+    if (hasPrev) {
+      setSelectedJobId(filteredJobs[selectedJobIndex - 1].id);
+    }
+  };
+
+  const handleNextJob = () => {
+    if (hasNext) {
+      setSelectedJobId(filteredJobs[selectedJobIndex + 1].id);
+    }
+  };
+
+  const handleCloseDetail = () => {
+    setSelectedJobId(null);
+  };
+
+  // 6. In-Memory Cache & Race-Condition Safe getJobDetail
+  const detailCacheRef = React.useRef<Map<number, JobDetailCacheEntry>>(new Map());
+  const [currentDetail, setCurrentDetail] = React.useState<JobDetailCacheEntry | null>(null);
+  const [isLoadingDetail, setIsLoadingDetail] = React.useState<boolean>(false);
+
   React.useEffect(() => {
-    if (!selectedListingId) {
-      setLoadingDescriptionJobId(null);
+    if (!selectedJob) {
+      setCurrentDetail(null);
+      setIsLoadingDetail(false);
       return;
     }
 
-    const idKey = String(selectedListingId);
-    if (descriptionsRef.current[idKey] !== undefined) {
-      setLoadingDescriptionJobId(null);
-      return; // Already loaded or cached
+    const numericId = Number(selectedJob.id);
+    if (!numericId || numericId <= 0) {
+      setCurrentDetail({
+        rawDescription:
+          'raw_description' in selectedJob &&
+          typeof (selectedJob as { raw_description?: unknown }).raw_description === 'string'
+            ? (selectedJob as { raw_description?: string }).raw_description ?? null
+            : null,
+        reasoningChain: selectedJob.reasoning_chain ?? null,
+      });
+      setIsLoadingDetail(false);
+      return;
     }
 
-    const numericId = Number(selectedListingId);
-    if (!numericId || numericId <= 0) {
-      setLoadingDescriptionJobId(null);
+    const cached = detailCacheRef.current.get(numericId);
+    if (cached) {
+      setCurrentDetail(cached);
+      setIsLoadingDetail(false);
       return;
     }
 
     let isMounted = true;
-    setLoadingDescriptionJobId(idKey);
+    setIsLoadingDetail(true);
 
-    getJobDescription(numericId)
+    getJobDetail(numericId)
       .then((res) => {
-        if (!isMounted) return;
-        setDescriptions((prev) => ({
-          ...prev,
-          [idKey]: res.rawDescription || '',
-        }));
+        const entry: JobDetailCacheEntry = {
+          rawDescription: res.rawDescription,
+          reasoningChain: res.reasoningChain,
+        };
+        detailCacheRef.current.set(numericId, entry);
+
+        // Guard against race conditions
+        if (isMounted && String(selectedJob.id) === String(numericId)) {
+          setCurrentDetail(entry);
+          setIsLoadingDetail(false);
+        }
       })
       .catch((err) => {
-        console.error('Failed to fetch job description:', err);
-      })
-      .finally(() => {
-        if (isMounted) {
-          setLoadingDescriptionJobId((current) =>
-            current === idKey ? null : current
-          );
+        console.error('getJobDetail failed:', err);
+        if (isMounted && String(selectedJob.id) === String(numericId)) {
+          setIsLoadingDetail(false);
         }
       });
 
     return () => {
       isMounted = false;
     };
-  }, [selectedListingId]);
+  }, [selectedJob]);
 
-  // Trigger historical search when "Cualquier fecha" is selected
-  const filterSearch = filters.search;
-  const filterMinScore = filters.minScore;
-  const filterIncludeAi = filters.includeDiscardedAi;
-  const modalitiesStr = filters.modalities.join(',');
-  const sourcesStr = filters.sources.join(',');
+  // 7. CRM State Mutations & Optimistic Rollback
+  const [pendingCrmJobId, setPendingCrmJobId] = React.useState<string | null>(null);
+  const [actionError, setActionError] = React.useState<string | null>(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = React.useState<boolean>(false);
+  const [authPrompt, setAuthPrompt] = React.useState<string>(
+    'Inicia sesión o crea una cuenta gratis para clasificar y dar seguimiento a esta postulación en tu radar personal.'
+  );
 
-  React.useEffect(() => {
-    if (!isHistorical) {
-      setHistoricalJobs([]);
-      setHistoricalOffset(0);
-      setHistoricalHasMore(false);
-      return;
-    }
-
-    let isMounted = true;
-    setIsLoadingHistorical(true);
-
-    const activeModalities = modalitiesStr ? modalitiesStr.split(',') : [];
-    const activeSources = sourcesStr ? sourcesStr.split(',') : [];
-
-    searchHistoricalJobs({
-      query: filterSearch,
-      includeDiscardedAi: filterIncludeAi,
-      minScore: filterMinScore,
-      modalities: activeModalities,
-      sources: activeSources,
-      maxAgeDays: null,
-      offset: 0,
-      limit: 20,
-    })
-      .then((res) => {
-        if (!isMounted) return;
-        setHistoricalJobs(res.jobs);
-        setHistoricalOffset(res.jobs.length);
-        setHistoricalHasMore(res.hasMore);
-      })
-      .catch((err) => {
-        console.error('Historical search failed:', err);
-      })
-      .finally(() => {
-        if (isMounted) setIsLoadingHistorical(false);
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [
-    isHistorical,
-    filterSearch,
-    filterMinScore,
-    filterIncludeAi,
-    modalitiesStr,
-    sourcesStr,
-  ]);
-
-  const handleLoadMoreHistorical = async () => {
-    if (isLoadingHistorical || !historicalHasMore) return;
-    setIsLoadingHistorical(true);
-
-    try {
-      const activeModalities = modalitiesStr ? modalitiesStr.split(',') : [];
-      const activeSources = sourcesStr ? sourcesStr.split(',') : [];
-
-      const res = await searchHistoricalJobs({
-        query: filterSearch,
-        includeDiscardedAi: filterIncludeAi,
-        minScore: filterMinScore,
-        modalities: activeModalities,
-        sources: activeSources,
-        maxAgeDays: null,
-        offset: historicalOffset,
-        limit: 20,
-      });
-
-      setHistoricalJobs((prev) => [...prev, ...res.jobs]);
-      setHistoricalOffset((prev) => prev + res.jobs.length);
-      setHistoricalHasMore(res.hasMore);
-    } catch (err) {
-      console.error('Error loading more historical jobs:', err);
-    } finally {
-      setIsLoadingHistorical(false);
-    }
-  };
-
-  // Intercept guest CRM mutations with robust rollback on server failure
-  const handleCrmStatusChange = (status: CrmStatus) => {
-    if (!selectedJob) return;
-
+  const handleQuickCrmChange = (job: JobSummary, status: CrmStatus) => {
     if (!canMutateCrm(user)) {
       setAuthPrompt(
         'Inicia sesión o crea tu cuenta para guardar y clasificar vacantes en tu radar personal.'
@@ -283,19 +379,19 @@ export function JobsWorkspace({
       return;
     }
 
-    // Capture snapshots for rollback
-    const prevJobs = jobs;
-    const prevHistorical = historicalJobs;
-    const targetId = selectedJob.id;
+    const prevJobState = {
+      user_status: job.user_status,
+      applied_at: job.applied_at,
+      user_notes: job.user_notes,
+    };
+    const targetId = job.id;
+
+    setPendingCrmJobId(String(targetId));
 
     startTransition(() => {
-      setJobs((prev) =>
-        applyOptimisticCrmTransition(prev, targetId, status)
-      );
+      setJobs((prev) => applyOptimisticCrmTransition(prev, targetId, status));
       if (historicalJobs.length > 0) {
-        setHistoricalJobs((prev) =>
-          applyOptimisticCrmTransition(prev, targetId, status)
-        );
+        setHistoricalJobs((prev) => applyOptimisticCrmTransition(prev, targetId, status));
       }
     });
 
@@ -304,76 +400,37 @@ export function JobsWorkspace({
       upsertJobState({
         listingId: numericId,
         status,
-        notes: selectedJob.user_notes || undefined,
+        notes: job.user_notes || undefined,
       })
         .then((res) => {
           if (!res.ok) {
-            console.error('Failed to persist CRM status:', res.error);
-            // Rollback optimistic update
-            setJobs(prevJobs);
-            setHistoricalJobs(prevHistorical);
+            console.error('Failed to update CRM status:', res.error);
+            setJobs((prev) => rollbackJobTransition(prev, targetId, prevJobState));
+            if (historicalJobs.length > 0) {
+              setHistoricalJobs((prev) =>
+                rollbackJobTransition(prev, targetId, prevJobState)
+              );
+            }
             setActionError('No se pudo guardar el estado de la postulación. Intenta nuevamente.');
             setTimeout(() => setActionError(null), 4000);
           }
         })
         .catch((err) => {
-          console.error('Exception persisting CRM status:', err);
-          // Rollback optimistic update
-          setJobs(prevJobs);
-          setHistoricalJobs(prevHistorical);
+          console.error('Error updating CRM status:', err);
+          setJobs((prev) => rollbackJobTransition(prev, targetId, prevJobState));
+          if (historicalJobs.length > 0) {
+            setHistoricalJobs((prev) =>
+              rollbackJobTransition(prev, targetId, prevJobState)
+            );
+          }
           setActionError('Error de red al sincronizar el estado.');
           setTimeout(() => setActionError(null), 4000);
-        });
-    }
-  };
-
-  const handleToggleFavorite = (job: JobSummary) => {
-    if (!canMutateCrm(user)) {
-      setAuthPrompt(
-        'Inicia sesión para marcar vacantes como destacadas en tu radar personal.'
-      );
-      setIsAuthModalOpen(true);
-      return;
-    }
-
-    const prevJobs = jobs;
-    const prevHistorical = historicalJobs;
-    const nextStatus: CrmStatus =
-      job.user_status === 'favorite' ? 'to_apply' : 'favorite';
-
-    startTransition(() => {
-      setJobs((prev) =>
-        applyOptimisticCrmTransition(prev, job.id, nextStatus)
-      );
-      if (historicalJobs.length > 0) {
-        setHistoricalJobs((prev) =>
-          applyOptimisticCrmTransition(prev, job.id, nextStatus)
-        );
-      }
-    });
-
-    const numericId = Number(job.id);
-    if (numericId > 0) {
-      upsertJobState({
-        listingId: numericId,
-        status: nextStatus,
-        notes: job.user_notes || undefined,
-      })
-        .then((res) => {
-          if (!res.ok) {
-            console.error('Failed to toggle favorite:', res.error);
-            setJobs(prevJobs);
-            setHistoricalJobs(prevHistorical);
-            setActionError('No se pudo actualizar la vacante destacada.');
-            setTimeout(() => setActionError(null), 4000);
-          }
         })
-        .catch(() => {
-          setJobs(prevJobs);
-          setHistoricalJobs(prevHistorical);
-          setActionError('Error de red al actualizar vacante destacada.');
-          setTimeout(() => setActionError(null), 4000);
+        .finally(() => {
+          setPendingCrmJobId(null);
         });
+    } else {
+      setPendingCrmJobId(null);
     }
   };
 
@@ -388,8 +445,11 @@ export function JobsWorkspace({
       return false;
     }
 
-    const prevJobs = jobs;
-    const prevHistorical = historicalJobs;
+    const prevJobState = {
+      user_status: selectedJob.user_status,
+      applied_at: selectedJob.applied_at,
+      user_notes: selectedJob.user_notes,
+    };
     const targetId = selectedJob.id;
     const currentStatus = selectedJob.user_status || 'to_apply';
 
@@ -414,16 +474,24 @@ export function JobsWorkspace({
         });
 
         if (!res.ok) {
-          setJobs(prevJobs);
-          setHistoricalJobs(prevHistorical);
+          setJobs((prev) => rollbackJobTransition(prev, targetId, prevJobState));
+          if (historicalJobs.length > 0) {
+            setHistoricalJobs((prev) =>
+              rollbackJobTransition(prev, targetId, prevJobState)
+            );
+          }
           setActionError('No se pudo guardar la nota en el servidor.');
           setTimeout(() => setActionError(null), 4000);
           return false;
         }
         return true;
       } catch {
-        setJobs(prevJobs);
-        setHistoricalJobs(prevHistorical);
+        setJobs((prev) => rollbackJobTransition(prev, targetId, prevJobState));
+        if (historicalJobs.length > 0) {
+          setHistoricalJobs((prev) =>
+            rollbackJobTransition(prev, targetId, prevJobState)
+          );
+        }
         setActionError('Error de red al guardar la nota.');
         setTimeout(() => setActionError(null), 4000);
         return false;
@@ -432,172 +500,414 @@ export function JobsWorkspace({
     return false;
   };
 
-  const handleCardSelect = (jobId: number | string) => {
-    setSelectedJobId(jobId);
-    setIsMobileDetailOpen(true);
+  // 8. Filter sidebar handlers
+  const handleClearAll = () => {
+    setHasExplicitExclParam(true);
+    setFilters((prev) => clearFilterCriteria(prev));
   };
 
+  const handleResetToDefaults = () => {
+    setHasExplicitExclParam(false);
+    setFilters((prev) => resetFilterCriteriaToDefaults(prev, profileExcludedDistricts));
+  };
+
+  // 9. Mobile Filter Dialog (< 1024px)
+  const mobileFilterDialogRef = React.useRef<HTMLDialogElement | null>(null);
+  const mobileFilterPointerDownOutsideRef = React.useRef<boolean>(false);
+
+  const openMobileFilters = () => {
+    const dialog = mobileFilterDialogRef.current;
+    if (dialog && !dialog.open) {
+      if (typeof dialog.showModal === 'function') {
+        dialog.showModal();
+      } else {
+        dialog.setAttribute('open', '');
+      }
+    }
+  };
+
+  const closeMobileFilters = () => {
+    const dialog = mobileFilterDialogRef.current;
+    if (dialog && dialog.open) {
+      dialog.returnValue = '';
+      if (typeof dialog.close === 'function') {
+        dialog.close();
+      } else {
+        dialog.removeAttribute('open');
+      }
+    }
+  };
+
+  const handleMobileFilterPointerDown = (e: React.PointerEvent<HTMLDialogElement>) => {
+    const dialog = mobileFilterDialogRef.current;
+    if (!dialog || e.target !== dialog) {
+      mobileFilterPointerDownOutsideRef.current = false;
+      return;
+    }
+    const rect = dialog.getBoundingClientRect();
+    mobileFilterPointerDownOutsideRef.current = isPointerEventOutsideRect(
+      rect,
+      e.clientX,
+      e.clientY
+    );
+  };
+
+  const handleMobileFilterPointerUp = (e: React.PointerEvent<HTMLDialogElement>) => {
+    const dialog = mobileFilterDialogRef.current;
+    if (!dialog || e.target !== dialog) {
+      mobileFilterPointerDownOutsideRef.current = false;
+      return;
+    }
+    const rect = dialog.getBoundingClientRect();
+    const isOutside = isPointerEventOutsideRect(rect, e.clientX, e.clientY);
+    if (mobileFilterPointerDownOutsideRef.current && isOutside) {
+      closeMobileFilters();
+    }
+    mobileFilterPointerDownOutsideRef.current = false;
+  };
+
+  const handleMobileFilterCancel = (e: React.SyntheticEvent<HTMLDialogElement, Event>) => {
+    e.preventDefault();
+    closeMobileFilters();
+  };
+
+  // Calculate active filter count for the mobile button badge
+  const activeFilterCount = React.useMemo(() => {
+    let count = 0;
+    if (filters.search.trim().length > 0) count++;
+    count += filters.includedDistricts.length;
+
+    const defaultExcl = profileExcludedDistricts ?? ['Ate'];
+    const isDefaultExcl =
+      filters.excludedDistricts.length === defaultExcl.length &&
+      filters.excludedDistricts.every((d, i) => d === defaultExcl[i]);
+    if (!isDefaultExcl) {
+      count += filters.excludedDistricts.length === 0 ? 1 : filters.excludedDistricts.length;
+    }
+
+    if (filters.englishOnly) count++;
+    count += filters.englishLevels.length;
+    count += filters.categories.length;
+
+    const isDefaultRoles =
+      filters.roleLevels.length === 1 && filters.roleLevels[0] === 'preprofesional';
+    if (!isDefaultRoles) {
+      count += filters.roleLevels.length;
+    }
+
+    if (filters.salaryFilter !== 'any') count++;
+
+    const defaultMods = ['Híbrido', 'Presencial', 'Remoto'];
+    const isDefaultMods =
+      filters.modalities.length === defaultMods.length &&
+      defaultMods.every((m) => filters.modalities.includes(m));
+    if (!isDefaultMods) count += filters.modalities.length;
+
+    count += filters.sources.length;
+    if (filters.minScore > 0) count++;
+    if (filters.includeDiscardedAi) count++;
+    if (filters.maxAgeDays !== 14) count++;
+
+    return count;
+  }, [filters, profileExcludedDistricts]);
+
+  const mobileFilterTrigger = (
+    <button
+      type="button"
+      onClick={openMobileFilters}
+      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-50 transition-colors"
+      aria-label="Abrir filtros de búsqueda"
+    >
+      <Sliders className="h-3.5 w-3.5 text-slate-500" />
+      <span>Filtros</span>
+      {activeFilterCount > 0 && (
+        <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[#1E3A8A] px-1 text-[10px] font-bold text-white">
+          {activeFilterCount}
+        </span>
+      )}
+    </button>
+  );
+
   return (
-    <div className="space-y-5">
-      {/* 1. Supabase unconfigured notice banner */}
-      {!isConfigured && (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50/90 p-4 text-xs sm:text-sm text-amber-900 shadow-2xs flex items-start gap-3">
-          <AlertCircle className="h-5 w-5 shrink-0 text-amber-600 mt-0.5" />
-          <div className="space-y-1">
-            <div className="font-bold text-amber-950">
-              Modo Demostración / Catálogo Público Activo
+    <AppShell
+      user={user}
+      pipelineCounts={{
+        favoriteCount: counts.favorite,
+        appliedCount: counts.applied,
+        interviewCount: counts.interview,
+        discardedCount: counts.discarded,
+        totalTracked: counts.todas,
+      }}
+      lastUpdated={lastUpdated}
+      mobileFilterTrigger={mobileFilterTrigger}
+      onOpenAuthModal={() => {
+        setAuthPrompt(
+          'Inicia sesión o crea una cuenta gratis para clasificar y dar seguimiento a tus postulaciones.'
+        );
+        setIsAuthModalOpen(true);
+      }}
+    >
+      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="space-y-5">
+          {/* 1. Supabase unconfigured notice banner */}
+          {!isConfigured && (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50/90 p-4 text-xs sm:text-sm text-amber-900 shadow-2xs flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 shrink-0 text-amber-600 mt-0.5" />
+              <div className="space-y-1">
+                <div className="font-bold text-amber-950">
+                  Modo Demostración / Catálogo Público Activo
+                </div>
+                <p className="text-amber-800 leading-relaxed">
+                  Supabase aún no está enlazado a las variables de entorno de producción. Estás
+                  visualizando el radar público de convocatorias preprofesionales con búsqueda
+                  inteligente y filtros en vivo. Para guardar postulaciones y sincronizar estados CRM,
+                  agrega las credenciales de tu proyecto Supabase en{' '}
+                  <code className="bg-amber-100 font-mono text-xs px-1.5 py-0.5 rounded font-bold">
+                    apps/web/.env.local
+                  </code>.
+                </p>
+              </div>
             </div>
-            <p className="text-amber-800 leading-relaxed">
-              Supabase aún no está enlazado a las variables de entorno de producción. Estás
-              visualizando el radar público de convocatorias preprofesionales con búsqueda
-              inteligente y filtros en vivo. Para guardar postulaciones y sincronizar estados CRM,
-              agrega las credenciales de tu proyecto Supabase en{' '}
-              <code className="bg-amber-100 font-mono text-xs px-1.5 py-0.5 rounded font-bold">
-                apps/web/.env.local
-              </code>.
-            </p>
-          </div>
-        </div>
-      )}
+          )}
 
-      {/* Error alert on failed mutations */}
-      {actionError && (
-        <div
-          role="alert"
-          aria-live="polite"
-          className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800 flex items-center justify-between"
-        >
-          <span>{actionError}</span>
-          <button
-            type="button"
-            onClick={() => setActionError(null)}
-            className="text-red-600 hover:text-red-800 font-bold px-2 py-0.5"
-            aria-label="Cerrar aviso"
-          >
-            ✕
-          </button>
-        </div>
-      )}
+          {/* Action error banner on failed mutations */}
+          {actionError && (
+            <div
+              role="alert"
+              aria-live="polite"
+              className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800 flex items-center justify-between"
+            >
+              <span>{actionError}</span>
+              <button
+                type="button"
+                onClick={() => setActionError(null)}
+                className="text-red-600 hover:text-red-800 font-bold px-2 py-0.5"
+                aria-label="Cerrar aviso"
+              >
+                ✕
+              </button>
+            </div>
+          )}
 
-      {/* 2. Top Filter and Search Bar */}
-      <FilterBar
-        filters={filters}
-        onChange={setFilters}
-        counts={counts}
-        correctedQuery={correctedQuery}
-        didYouMean={didYouMean}
-        totalResultsCount={filteredJobs.length}
-        isHistoricalMode={isHistorical}
-      />
-
-      {/* 3. Master-Detail Layout */}
-      {filteredJobs.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-xs">
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-600 mb-3">
-            <Inbox className="h-6 w-6" />
-          </div>
-          <h3 className="text-base font-bold text-slate-900">
-            No se encontraron vacantes con los filtros seleccionados
-          </h3>
-          <p className="mt-1 max-w-sm text-xs sm:text-sm text-slate-600">
-            Prueba ajustando los términos de búsqueda, ampliando la antigüedad a «Cualquier
-            fecha» o restableciendo los filtros.
-          </p>
-          <button
-            type="button"
-            onClick={() => setFilters(DEFAULT_WORKSPACE_FILTERS)}
-            className="mt-4 rounded-xl bg-blue-900 px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-blue-800 transition-colors"
-          >
-            Restablecer todos los filtros
-          </button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* Master List (5 columns on desktop) */}
-          <div className="lg:col-span-5 xl:col-span-5 space-y-3">
-            {filteredJobs.map((job) => (
-              <JobCard
-                key={job.deduplication_hash || job.id}
-                job={job}
-                isSelected={selectedJob ? String(selectedJob.id) === String(job.id) : false}
-                onSelect={() => handleCardSelect(job.id)}
-                onToggleFavorite={handleToggleFavorite}
+          {/* 2. Responsive 2-column workspace */}
+          <div className="grid grid-cols-1 lg:grid-cols-[296px_1fr] gap-6 items-start">
+            {/* Desktop Sticky Left FilterSidebar */}
+            <div className="hidden lg:block sticky top-6 max-h-[calc(100vh-3rem)] overflow-y-auto">
+              <FilterSidebar
+                filters={filters}
+                onChange={setFilters}
+                districtCounts={districtCounts}
+                categoryCounts={categoryCounts}
+                totalCount={filteredJobs.length}
+                correctedQuery={correctedQuery}
+                didYouMean={didYouMean}
+                profileExcludedDistricts={profileExcludedDistricts}
+                onClearAll={handleClearAll}
+                onResetToDefaults={handleResetToDefaults}
               />
-            ))}
+            </div>
 
-            {/* Pagination / Load more for historical query */}
-            {isHistorical && (
-              <div className="pt-2 text-center">
-                {historicalHasMore ? (
+            {/* Right Feed (1fr) */}
+            <div className="space-y-4 min-w-0">
+              {/* CRM Tabs bar */}
+              <div className="flex items-center gap-1 overflow-x-auto pb-1 border-b border-[#E2E8F0]">
+                {CRM_WORKSPACE_TABS.map((tab) => {
+                  const isActive = filters.crmTab === tab.key;
+                  const tabCount = counts[tab.countKey];
+                  return (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      onClick={() => setFilters((prev) => ({ ...prev, crmTab: tab.key }))}
+                      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                        isActive
+                          ? 'bg-[#1E3A8A] text-white shadow-2xs'
+                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                      }`}
+                      aria-pressed={isActive}
+                    >
+                      <span>{tab.label}</span>
+                      <span
+                        className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                          isActive
+                            ? 'bg-white/20 text-white'
+                            : 'bg-slate-200/80 text-slate-700'
+                        }`}
+                      >
+                        {tabCount}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Result summary and sort dropdown */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                <div className="flex items-center gap-2 text-xs text-slate-600">
+                  <span className="font-semibold text-slate-900">
+                    {filteredJobs.length === 1
+                      ? '1 vacante encontrada'
+                      : `${filteredJobs.length} vacantes encontradas`}
+                  </span>
+                  {isHistorical && (
+                    <span className="rounded bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800 border border-amber-200">
+                      Histórico DB
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <label
+                    htmlFor="workspace-sort-select"
+                    className="text-xs text-slate-500 font-medium"
+                  >
+                    Ordenar por:
+                  </label>
+                  <select
+                    id="workspace-sort-select"
+                    value={filters.sortBy}
+                    onChange={(e) =>
+                      setFilters((prev) => ({
+                        ...prev,
+                        sortBy: e.target.value as WorkspaceSortBy,
+                      }))
+                    }
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-2xs focus:border-blue-600 focus:outline-none"
+                  >
+                    <option value="modality_score">Afinidad + Modalidad</option>
+                    <option value="score">Mayor afinidad</option>
+                    <option value="recent">Más recientes</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Job Cards list */}
+              {filteredJobs.length === 0 ? (
+                <div className="flex flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-xs">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-600 mb-3">
+                    <Inbox className="h-6 w-6" />
+                  </div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    No se encontraron vacantes con los filtros seleccionados
+                  </h3>
+                  <p className="mt-1 max-w-sm text-xs sm:text-sm text-slate-600">
+                    Prueba ajustando los términos de búsqueda, ampliando la fecha a «Cualquier fecha»
+                    o restableciendo los filtros.
+                  </p>
                   <button
                     type="button"
-                    onClick={handleLoadMoreHistorical}
-                    disabled={isLoadingHistorical}
-                    className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 shadow-xs hover:bg-slate-50 disabled:opacity-50 transition-colors"
+                    onClick={handleResetToDefaults}
+                    className="mt-4 rounded-xl bg-[#1E3A8A] px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-blue-800 transition-colors"
                   >
-                    {isLoadingHistorical ? (
-                      <>
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        <span>Cargando más vacantes históricas...</span>
-                      </>
-                    ) : (
-                      <>
-                        <ArrowDown className="h-3.5 w-3.5" />
-                        <span>Cargar más vacantes históricas</span>
-                      </>
-                    )}
+                    Restaurar perfil
                   </button>
-                ) : (
-                  <p className="text-xs text-slate-600 italic">
-                    Has llegado al final de las convocatorias históricas.
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {filteredJobs.map((job) => (
+                    <JobCard
+                      key={job.deduplication_hash || job.id}
+                      job={job}
+                      isSelected={selectedJob ? String(selectedJob.id) === String(job.id) : false}
+                      onSelect={() => setSelectedJobId(job.id)}
+                      onQuickCrmChange={handleQuickCrmChange}
+                      isPendingCrm={pendingCrmJobId === String(job.id)}
+                    />
+                  ))}
 
-          {/* Detail Panel (7 columns on desktop - sticky) */}
-          <div className="hidden lg:block lg:col-span-7 xl:col-span-7 sticky top-20 h-[calc(100vh-6rem)]">
-            {selectedJob ? (
-              <JobDetail
-                job={selectedJob}
-                rawDescription={descriptions[String(selectedJob.id)] ?? null}
-                isLoadingDescription={isLoadingDescription}
-                onStatusChange={handleCrmStatusChange}
-                onSaveNotes={handleSaveNotes}
-              />
-            ) : (
-              <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50/50 p-8 text-center text-xs text-slate-600">
-                Selecciona una vacante del radar para ver su análisis detallado.
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* 4. Mobile Drawer / Modal when a job is explicitly clicked on small screens */}
-      {isMobileDetailOpen && selectedJob && (
-        <div className="block lg:hidden">
-          <div
-            className="fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
-            onClick={() => setIsMobileDetailOpen(false)}
-          >
-            <div
-              className="h-[88vh] sm:h-[82vh] w-full max-w-2xl bg-white rounded-t-3xl sm:rounded-2xl overflow-hidden shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <JobDetail
-                job={selectedJob}
-                rawDescription={descriptions[String(selectedJob.id)] ?? null}
-                isLoadingDescription={isLoadingDescription}
-                onStatusChange={handleCrmStatusChange}
-                onSaveNotes={handleSaveNotes}
-                onClose={() => setIsMobileDetailOpen(false)}
-              />
+                  {/* Historical Load More */}
+                  {isHistorical && (
+                    <div className="pt-2 text-center">
+                      {historicalHasMore ? (
+                        <button
+                          type="button"
+                          onClick={handleLoadMoreHistorical}
+                          disabled={isLoadingHistorical}
+                          className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 shadow-xs hover:bg-slate-50 disabled:opacity-50 transition-colors"
+                        >
+                          {isLoadingHistorical ? (
+                            <>
+                              <Loader2 className="h-3.5 w-3.5 animate-spin text-[#1E3A8A]" />
+                              <span>Cargando más vacantes históricas...</span>
+                            </>
+                          ) : (
+                            <>
+                              <ArrowDown className="h-3.5 w-3.5 text-slate-500" />
+                              <span>Cargar más vacantes históricas</span>
+                            </>
+                          )}
+                        </button>
+                      ) : (
+                        <p className="text-xs text-slate-500 italic">
+                          Has llegado al final de las convocatorias históricas.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
-      )}
+      </main>
+
+      {/* 3. Slide-Over JobDetailDrawer */}
+      <JobDetailDrawer
+        job={selectedJob}
+        rawDescription={currentDetail?.rawDescription ?? null}
+        reasoningChain={currentDetail?.reasoningChain ?? null}
+        isLoadingDetail={isLoadingDetail}
+        onClose={handleCloseDetail}
+        onPrevJob={handlePrevJob}
+        onNextJob={handleNextJob}
+        hasPrev={hasPrev}
+        hasNext={hasNext}
+        onStatusChange={(status) => {
+          if (selectedJob) handleQuickCrmChange(selectedJob, status);
+        }}
+        onSaveNotes={handleSaveNotes}
+      />
+
+      {/* 4. Mobile Filter Sidebar Drawer (< 1024px) */}
+      <dialog
+        ref={mobileFilterDialogRef}
+        id="mobile-filter-drawer"
+        aria-labelledby="mobile-filter-title"
+        className="mobile-filter-drawer overscroll-contain"
+        onPointerDown={handleMobileFilterPointerDown}
+        onPointerUp={handleMobileFilterPointerUp}
+        onCancel={handleMobileFilterCancel}
+      >
+        <div className="flex h-full flex-col overflow-hidden">
+          <div className="flex items-center justify-between border-b border-slate-100 p-4 bg-slate-50">
+            <span id="mobile-filter-title" className="font-bold text-slate-900 text-sm">
+              Filtros de Búsqueda
+            </span>
+            <button
+              type="button"
+              onClick={closeMobileFilters}
+              className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-200 transition-colors"
+              aria-label="Cerrar filtros"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4">
+            <FilterSidebar
+              filters={filters}
+              onChange={setFilters}
+              districtCounts={districtCounts}
+              categoryCounts={categoryCounts}
+              totalCount={filteredJobs.length}
+              correctedQuery={correctedQuery}
+              didYouMean={didYouMean}
+              profileExcludedDistricts={profileExcludedDistricts}
+              onClearAll={handleClearAll}
+              onResetToDefaults={handleResetToDefaults}
+            />
+          </div>
+        </div>
+      </dialog>
 
       {/* 5. Guest Auth Modal */}
       <AuthModal
@@ -605,6 +915,6 @@ export function JobsWorkspace({
         onClose={() => setIsAuthModalOpen(false)}
         actionPrompt={authPrompt}
       />
-    </div>
+    </AppShell>
   );
 }
