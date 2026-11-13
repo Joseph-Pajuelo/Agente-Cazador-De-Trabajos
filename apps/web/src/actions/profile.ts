@@ -1,26 +1,9 @@
 'use server';
 
-import { z } from 'zod';
 import { createClient, isSupabaseConfigured } from '../lib/supabase/server';
+import { profileUpdateSchema, type ProfileUpdateInput } from './schemas';
 
-export const profileUpdateSchema = z
-  .object({
-    full_name: z.string().min(1).max(100).optional(),
-    headline: z.string().max(150).optional(),
-    university: z.string().max(100).optional(),
-    current_cycle: z.string().max(50).optional(),
-    cycle_label: z.string().max(50).optional(),
-    preferred_districts: z.array(z.string().max(50)).max(50).optional(),
-    target_districts: z.array(z.string().max(50)).max(50).optional(),
-    modality_priority: z.array(z.string().max(50)).max(10).optional(),
-    target_areas: z.array(z.string().max(50)).max(20).optional(),
-    technical_skills: z.record(z.unknown()).optional(),
-    skills_json: z.record(z.unknown()).optional(),
-    min_score_pref: z.number().min(0).max(100).optional(),
-  })
-  .strict();
-
-export type ProfileUpdateInput = z.infer<typeof profileUpdateSchema>;
+export type { ProfileUpdateInput };
 
 export async function validateProfileUpdatePayload(payload: unknown): Promise<{
   ok: boolean;

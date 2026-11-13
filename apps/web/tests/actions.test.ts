@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { crmStateSchema, upsertJobState } from '../src/actions/crm';
+import { crmStateSchema, profileUpdateSchema } from '../src/actions/schemas';
+import { upsertJobState } from '../src/actions/crm';
 import {
-  profileUpdateSchema,
   validateProfileUpdatePayload,
   updateProfile,
 } from '../src/actions/profile';

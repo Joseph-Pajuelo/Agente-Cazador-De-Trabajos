@@ -7,7 +7,7 @@ import {
 } from '../lib/supabase/queries';
 import { JobSummary, CrmStatus } from '../lib/domain/types';
 
-export const HISTORICAL_SEARCH_SELECT = `
+const HISTORICAL_SEARCH_SELECT = `
   id,
   deduplication_hash,
   source,
