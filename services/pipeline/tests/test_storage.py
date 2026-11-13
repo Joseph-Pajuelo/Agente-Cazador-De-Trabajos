@@ -2,7 +2,8 @@ import gc
 import os
 import tempfile
 import pytest
-from storage.database import DatabaseManager
+from storage.sqlite_repo import SqliteRepository, DatabaseManager
+from storage.base import JobRepository
 from domain.models import JobListing, JobEvaluation
 from domain.enums import JobSource, Modality
 
@@ -27,6 +28,7 @@ def temp_db():
         pass
 
 def test_insert_and_deduplication(temp_db):
+    assert isinstance(temp_db, JobRepository)
     listing = JobListing(
         source=JobSource.PRACTICAS_PE,
         title="Practicante de Automatización",

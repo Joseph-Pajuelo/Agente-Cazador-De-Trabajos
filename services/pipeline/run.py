@@ -2,8 +2,10 @@
 """
 Job Hunter & ATS Tailor - Orquestador Principal del Pipeline de Ingesta y Evaluación.
 Diseñado bajo arquitectura modular y desacoplada (5 Adapters activos + Circuit Breaker).
+Soporta persistencia desacoplada mediante el patrón Repository (Supabase HTTPS / SQLite).
 """
 
+import os
 import sys
 import logging
 from datetime import datetime
@@ -17,13 +19,20 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     except Exception:
         pass
 
-# Añadir raíz al sys.path
-root_dir = Path(__file__).resolve().parent
-if str(root_dir) not in sys.path:
-    sys.path.insert(0, str(root_dir))
+# Añadir raíz de pipeline y repositorio al sys.path
+pipeline_root = Path(__file__).resolve().parent
+repo_root = pipeline_root.parent.parent
+
+for p in (repo_root, pipeline_root):
+    p_str = str(p)
+    if p_str in sys.path:
+        sys.path.remove(p_str)
+    sys.path.insert(0, p_str)
 
 from config.candidate_profile import CANDIDATE_PROFILE
-from storage.database import DatabaseManager
+from storage.base import JobRepository
+from storage.sqlite_repo import SqliteRepository
+from storage.supabase_repo import SupabaseRepository
 from adapters.practicas_pe import PracticasPeAdapter
 from adapters.bumeran import BumeranAdapter
 from adapters.linkedin import LinkedInGuestAdapter
@@ -41,7 +50,26 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("fontTools").setLevel(logging.WARNING)
 logger = logging.getLogger("JobHunterAgent")
 
-REPORTS_DIR = root_dir / "reports"
+REPORTS_DIR = pipeline_root / "reports"
+
+
+def get_repository(backend: str = "auto") -> JobRepository:
+    """Factory para resolver la implementación de JobRepository según el parámetro o entorno."""
+    selected = backend.lower().strip()
+    if selected == "auto":
+        if os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_SERVICE_ROLE_KEY"):
+            selected = "supabase"
+        else:
+            selected = "sqlite"
+
+    if selected == "supabase":
+        logger.info("Usando backend de persistencia Supabase (PostgREST HTTPS)")
+        return SupabaseRepository()
+    elif selected == "sqlite":
+        logger.info("Usando backend de persistencia SQLite local")
+        return SqliteRepository()
+    else:
+        raise ValueError(f"Backend de persistencia desconocido: {backend}. Use 'auto', 'supabase' o 'sqlite'.")
 
 
 def get_adapters():
@@ -61,10 +89,12 @@ def run_pipeline(
     generate_pdf: bool = True,
     selected_adapters: Optional[List[str]] = None,
     reevaluate_all: bool = False,
+    backend: str = "auto",
+    repo: Optional[JobRepository] = None,
     on_progress: Optional[Callable[[str, float], None]] = None,
 ) -> dict:
     logger.info("=== INICIANDO PIPELINE DE CAZADOR DE VACANTES (5 FUENTES) ===")
-    db = DatabaseManager()
+    db = repo or get_repository(backend=backend)
 
     if reevaluate_all:
         logger.info("Reseteando evaluaciones previas para re-evaluar todo el catálogo...")
@@ -112,17 +142,19 @@ def run_pipeline(
             f"{listing.title} ({listing.company}) [{listing.source.value}]"
         )
 
-    # 3. Ranking y generación de PDF
+    # 3. Ranking y generación opcional de PDF
+    evaluated_jobs = db.get_all_evaluated_jobs()
     recommended = sort_by_modality_then_score(
-        [j for j in db.get_all_evaluated_jobs() if is_recommended(j, min_score)]
+        [j for j in evaluated_jobs if is_recommended(j, min_score)]
     )
     pdf_path = None
     if generate_pdf:
+        REPORTS_DIR.mkdir(parents=True, exist_ok=True)
         pdf_path = REPORTS_DIR / f"reporte_vacantes_{datetime.now():%Y%m%d_%H%M%S}.pdf"
         generate_pdf_report(recommended, CANDIDATE_PROFILE["name"], str(pdf_path))
         logger.info(f"Reporte PDF generado en: {pdf_path}")
 
-    # Consolidar WAL en jobs.db para persistencia limpia en disco / Git
+    # Consolidar WAL si aplica
     db.checkpoint()
 
     if on_progress:
@@ -147,15 +179,24 @@ if __name__ == "__main__":
     parser.add_argument("--limit", type=int, default=8, help="Límite de vacantes por portal")
     parser.add_argument("--min-score", type=float, default=50.0, help="Puntaje mínimo recomendado")
     parser.add_argument("--no-pdf", action="store_true", help="Omitir la generación de reporte PDF")
+    parser.add_argument("--reevaluate-all", action="store_true", help="Re-evaluar todas las vacantes del catálogo")
+    parser.add_argument(
+        "--backend",
+        type=str,
+        default="auto",
+        choices=["auto", "supabase", "sqlite"],
+        help="Backend de persistencia: auto (Supabase si hay env vars, si no SQLite), supabase, sqlite",
+    )
     args = parser.parse_args()
 
     summary = run_pipeline(
         limit_per_source=args.limit,
         min_score=args.min_score,
         generate_pdf=not args.no_pdf,
+        reevaluate_all=args.reevaluate_all,
+        backend=args.backend,
     )
     print("\n" + "=" * 75)
     for k, v in summary.items():
         print(f"  {k:14}: {v}")
     print("=" * 75)
-    print("Dashboard activo en: http://localhost:8501")
