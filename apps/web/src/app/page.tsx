@@ -1,12 +1,32 @@
-export default function HomePage() {
+import { getInitialRadarData } from '@/lib/supabase/queries';
+import { Navbar } from '@/components/layout/Navbar';
+import { JobsWorkspace } from '@/components/jobs/JobsWorkspace';
+
+export const dynamic = 'force-dynamic';
+
+export default async function HomePage() {
+  const { jobs, user, lastUpdated, isConfigured } = await getInitialRadarData();
+
+  const favoriteCount = jobs.filter((j) => j.user_status === 'favorite').length;
+  const appliedCount = jobs.filter((j) => j.user_status === 'applied').length;
+
   return (
-    <main className="p-8 max-w-4xl mx-auto">
-      <h1 className="text-2xl font-bold text-slate-900">
-        Job Hunter Agent
-      </h1>
-      <p className="text-slate-600 mt-2">
-        Plataforma web de radar de empleos y prácticas preprofesionales.
-      </p>
-    </main>
+    <div className="min-h-screen bg-slate-50 flex flex-col">
+      <Navbar
+        user={user}
+        favoriteCount={favoriteCount}
+        appliedCount={appliedCount}
+        lastUpdated={lastUpdated}
+      />
+
+      <main className="flex-1 mx-auto max-w-7xl w-full px-4 sm:px-6 lg:px-8 py-6">
+        <JobsWorkspace
+          initialJobs={jobs}
+          user={user}
+          lastUpdated={lastUpdated}
+          isConfigured={isConfigured}
+        />
+      </main>
+    </div>
   );
 }

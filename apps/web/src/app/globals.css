@@ -32,3 +32,14 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans);
 }
+
+/* Modern Web Guidance: MANDATORY rules for modal dialog scroll containment */
+dialog:modal {
+  overscroll-behavior: contain;
+}
+
+dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
