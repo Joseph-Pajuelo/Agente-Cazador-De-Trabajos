@@ -43,6 +43,69 @@ export interface FilterSidebarProps {
   className?: string;
 }
 
+export interface ActiveFilterChip {
+  id: string;
+  label: string;
+  onRemove: () => void;
+  colorClass: string;
+}
+
+/**
+ * Clears all user-customized search and filtering criteria while strictly
+ * preserving workspace-level states: crmTab, sortBy, and selectedJobId.
+ */
+export function clearFilterCriteria(filters: WorkspaceFilters): WorkspaceFilters {
+  return {
+    ...filters,
+    search: '',
+    includedDistricts: [],
+    excludedDistricts: [],
+    keepRemoteWhenDistrictFiltered: true,
+    includeLimaUnspecifiedDistrict: false,
+    englishOnly: false,
+    englishLevels: [],
+    categories: [],
+    roleLevels: ['preprofesional'],
+    modalities: ['Híbrido', 'Presencial', 'Remoto'],
+    sources: [],
+    salaryFilter: 'any',
+    maxAgeDays: 14,
+    minScore: 0,
+    includeDiscardedAi: false,
+  };
+}
+
+/**
+ * Resets search and filtering criteria to system or profile defaults while strictly
+ * preserving workspace-level states: crmTab, sortBy, and selectedJobId.
+ */
+export function resetFilterCriteriaToDefaults(
+  filters: WorkspaceFilters,
+  profileExcludedDistricts?: string[]
+): WorkspaceFilters {
+  return {
+    ...filters,
+    search: DEFAULT_WORKSPACE_FILTERS.search,
+    includedDistricts: DEFAULT_WORKSPACE_FILTERS.includedDistricts,
+    excludedDistricts:
+      profileExcludedDistricts ?? DEFAULT_WORKSPACE_FILTERS.excludedDistricts,
+    keepRemoteWhenDistrictFiltered:
+      DEFAULT_WORKSPACE_FILTERS.keepRemoteWhenDistrictFiltered,
+    includeLimaUnspecifiedDistrict:
+      DEFAULT_WORKSPACE_FILTERS.includeLimaUnspecifiedDistrict,
+    englishOnly: DEFAULT_WORKSPACE_FILTERS.englishOnly,
+    englishLevels: DEFAULT_WORKSPACE_FILTERS.englishLevels,
+    categories: DEFAULT_WORKSPACE_FILTERS.categories,
+    roleLevels: DEFAULT_WORKSPACE_FILTERS.roleLevels,
+    modalities: DEFAULT_WORKSPACE_FILTERS.modalities,
+    sources: DEFAULT_WORKSPACE_FILTERS.sources,
+    salaryFilter: DEFAULT_WORKSPACE_FILTERS.salaryFilter,
+    maxAgeDays: DEFAULT_WORKSPACE_FILTERS.maxAgeDays,
+    minScore: DEFAULT_WORKSPACE_FILTERS.minScore,
+    includeDiscardedAi: DEFAULT_WORKSPACE_FILTERS.includeDiscardedAi,
+  };
+}
+
 // Lima poles ordered by common preference for student internships
 const TOP_POLES = [
   'San Isidro',
@@ -81,29 +144,6 @@ export function FilterSidebar({
 }: FilterSidebarProps) {
   const [districtQuery, setDistrictQuery] = React.useState('');
 
-  // Count active non-default filters
-  const hasActiveFilters = React.useMemo(() => {
-    return (
-      filters.search.trim().length > 0 ||
-      filters.includedDistricts.length > 0 ||
-      filters.excludedDistricts.length !== 1 ||
-      filters.excludedDistricts[0] !== 'Ate' ||
-      !filters.keepRemoteWhenDistrictFiltered ||
-      filters.includeLimaUnspecifiedDistrict ||
-      filters.englishOnly ||
-      filters.englishLevels.length > 0 ||
-      filters.categories.length > 0 ||
-      filters.roleLevels.length !== 1 ||
-      filters.roleLevels[0] !== 'preprofesional' ||
-      filters.modalities.length !== 3 ||
-      filters.sources.length > 0 ||
-      filters.salaryFilter !== 'any' ||
-      filters.maxAgeDays !== 14 ||
-      filters.minScore > 0 ||
-      filters.includeDiscardedAi
-    );
-  }, [filters]);
-
   const handleClearAll = () => {
     if (onClearAll) {
       onClearAll();
@@ -113,11 +153,7 @@ export function FilterSidebar({
       onResetToDefaults();
       return;
     }
-    onChange({
-      ...DEFAULT_WORKSPACE_FILTERS,
-      excludedDistricts:
-        profileExcludedDistricts ?? DEFAULT_WORKSPACE_FILTERS.excludedDistricts,
-    });
+    onChange(clearFilterCriteria(filters));
   };
 
   const handleRestoreProfile = () => {
@@ -137,7 +173,6 @@ export function FilterSidebar({
 
   // Distritos filtered by local search input
   const displayDistricts = React.useMemo(() => {
-    // Unique list keeping top poles first, then remaining canonical districts
     const unique = new Set<string>();
     TOP_POLES.forEach((d) => unique.add(d));
     LIMA_DISTRICTS.forEach((d) => {
@@ -154,87 +189,312 @@ export function FilterSidebar({
   }, [districtQuery]);
 
   // Toggle district inclusion
-  const toggleDistrictInclusion = (district: string) => {
-    const isIncluded = filters.includedDistricts.includes(district);
-    const nextIncluded = isIncluded
-      ? filters.includedDistricts.filter((d) => d !== district)
-      : [...filters.includedDistricts, district];
+  const toggleDistrictInclusion = React.useCallback(
+    (district: string) => {
+      const isIncluded = filters.includedDistricts.includes(district);
+      const nextIncluded = isIncluded
+        ? filters.includedDistricts.filter((d) => d !== district)
+        : [...filters.includedDistricts, district];
 
-    // If including, ensure it's not also excluded
-    let nextExcluded = filters.excludedDistricts;
-    if (!isIncluded && nextExcluded.includes(district)) {
-      nextExcluded = nextExcluded.filter((d) => d !== district);
-    }
+      let nextExcluded = filters.excludedDistricts;
+      if (!isIncluded && nextExcluded.includes(district)) {
+        nextExcluded = nextExcluded.filter((d) => d !== district);
+      }
 
-    onChange({
-      ...filters,
-      includedDistricts: nextIncluded,
-      excludedDistricts: nextExcluded,
-    });
-  };
+      onChange({
+        ...filters,
+        includedDistricts: nextIncluded,
+        excludedDistricts: nextExcluded,
+      });
+    },
+    [filters, onChange]
+  );
 
   // Toggle district exclusion
-  const toggleDistrictExclusion = (district: string) => {
-    const isExcluded = filters.excludedDistricts.includes(district);
-    const nextExcluded = isExcluded
-      ? filters.excludedDistricts.filter((d) => d !== district)
-      : [...filters.excludedDistricts, district];
+  const toggleDistrictExclusion = React.useCallback(
+    (district: string) => {
+      const isExcluded = filters.excludedDistricts.includes(district);
+      const nextExcluded = isExcluded
+        ? filters.excludedDistricts.filter((d) => d !== district)
+        : [...filters.excludedDistricts, district];
 
-    // If excluding, ensure it's removed from included
-    const nextIncluded = filters.includedDistricts.filter((d) => d !== district);
+      const nextIncluded = filters.includedDistricts.filter((d) => d !== district);
 
-    onChange({
-      ...filters,
-      excludedDistricts: nextExcluded,
-      includedDistricts: nextIncluded,
-    });
-  };
+      onChange({
+        ...filters,
+        excludedDistricts: nextExcluded,
+        includedDistricts: nextIncluded,
+      });
+    },
+    [filters, onChange]
+  );
 
   // Toggle category
-  const toggleCategory = (cat: string) => {
-    const isSelected = filters.categories.includes(cat);
-    const next = isSelected
-      ? filters.categories.filter((c) => c !== cat)
-      : [...filters.categories, cat];
-    onChange({ ...filters, categories: next });
-  };
+  const toggleCategory = React.useCallback(
+    (cat: string) => {
+      const isSelected = filters.categories.includes(cat);
+      const next = isSelected
+        ? filters.categories.filter((c) => c !== cat)
+        : [...filters.categories, cat];
+      onChange({ ...filters, categories: next });
+    },
+    [filters, onChange]
+  );
 
   // Toggle modality
-  const toggleModality = (modality: string) => {
-    const isSelected = filters.modalities.includes(modality);
-    const next = isSelected
-      ? filters.modalities.filter((m) => m !== modality)
-      : [...filters.modalities, modality];
-    onChange({ ...filters, modalities: next });
-  };
+  const toggleModality = React.useCallback(
+    (modality: string) => {
+      const isSelected = filters.modalities.includes(modality);
+      const next = isSelected
+        ? filters.modalities.filter((m) => m !== modality)
+        : [...filters.modalities, modality];
+      onChange({ ...filters, modalities: next });
+    },
+    [filters, onChange]
+  );
 
   // Toggle source
-  const toggleSource = (sourceKey: string) => {
-    const isSelected = filters.sources.includes(sourceKey);
-    const next = isSelected
-      ? filters.sources.filter((s) => s !== sourceKey)
-      : [...filters.sources, sourceKey];
-    onChange({ ...filters, sources: next });
-  };
+  const toggleSource = React.useCallback(
+    (sourceKey: string) => {
+      const isSelected = filters.sources.includes(sourceKey);
+      const next = isSelected
+        ? filters.sources.filter((s) => s !== sourceKey)
+        : [...filters.sources, sourceKey];
+      onChange({ ...filters, sources: next });
+    },
+    [filters, onChange]
+  );
 
   // Toggle role level
-  const toggleRoleLevel = (role: Exclude<RoleLevel, 'unknown'>) => {
-    const isSelected = filters.roleLevels.includes(role);
-    const next = isSelected
-      ? filters.roleLevels.filter((r) => r !== role)
-      : [...filters.roleLevels, role];
-    onChange({ ...filters, roleLevels: next });
-  };
+  const toggleRoleLevel = React.useCallback(
+    (role: Exclude<RoleLevel, 'unknown'>) => {
+      const isSelected = filters.roleLevels.includes(role);
+      const next = isSelected
+        ? filters.roleLevels.filter((r) => r !== role)
+        : [...filters.roleLevels, role];
+      onChange({ ...filters, roleLevels: next });
+    },
+    [filters, onChange]
+  );
 
   // Toggle English level
-  const toggleEnglishLevel = (lvl: EnglishLevel) => {
-    const isSelected = filters.englishLevels.includes(lvl);
-    const next = isSelected
-      ? filters.englishLevels.filter((l) => l !== lvl)
-      : [...filters.englishLevels, lvl];
-    onChange({ ...filters, englishLevels: next });
-  };
+  const toggleEnglishLevel = React.useCallback(
+    (lvl: EnglishLevel) => {
+      const isSelected = filters.englishLevels.includes(lvl);
+      const next = isSelected
+        ? filters.englishLevels.filter((l) => l !== lvl)
+        : [...filters.englishLevels, lvl];
+      onChange({ ...filters, englishLevels: next });
+    },
+    [filters, onChange]
+  );
 
+  // Compute all visible active filter chips
+  const activeChips = React.useMemo<ActiveFilterChip[]>(() => {
+    const list: ActiveFilterChip[] = [];
+
+    // 1. Search text
+    if (filters.search.trim().length > 0) {
+      list.push({
+        id: 'search',
+        label: `“${filters.search.trim()}”`,
+        onRemove: () => onChange({ ...filters, search: '' }),
+        colorClass: 'bg-blue-50 border-blue-200/80 text-blue-900',
+      });
+    }
+
+    // 2. Included districts
+    filters.includedDistricts.forEach((d) => {
+      list.push({
+        id: `inc-${d}`,
+        label: d,
+        onRemove: () => toggleDistrictInclusion(d),
+        colorClass: 'bg-emerald-50 border-emerald-200 text-emerald-900',
+      });
+    });
+
+    // 3. Excluded districts (ALWAYS rendered including default Ate!)
+    filters.excludedDistricts.forEach((d) => {
+      list.push({
+        id: `exc-${d}`,
+        label: `No: ${d}`,
+        onRemove: () => toggleDistrictExclusion(d),
+        colorClass: 'bg-rose-50 border-rose-200 text-rose-900',
+      });
+    });
+
+    // 4. Categories
+    filters.categories.forEach((c) => {
+      list.push({
+        id: `cat-${c}`,
+        label: c,
+        onRemove: () => toggleCategory(c),
+        colorClass: 'bg-purple-50 border-purple-200 text-purple-900',
+      });
+    });
+
+    // 5. English
+    if (filters.englishOnly) {
+      if (filters.englishLevels.length > 0) {
+        filters.englishLevels.forEach((lvl) => {
+          const lvlNames: Record<string, string> = {
+            basico: 'Básico',
+            intermedio: 'Intermedio',
+            avanzado: 'Avanzado',
+          };
+          list.push({
+            id: `eng-${lvl}`,
+            label: `Inglés: ${lvlNames[lvl] || lvl}`,
+            onRemove: () => toggleEnglishLevel(lvl),
+            colorClass: 'bg-amber-50 border-amber-200 text-amber-900',
+          });
+        });
+      } else {
+        list.push({
+          id: 'eng-only',
+          label: 'Inglés',
+          onRemove: () =>
+            onChange({ ...filters, englishOnly: false, englishLevels: [] }),
+          colorClass: 'bg-amber-50 border-amber-200 text-amber-900',
+        });
+      }
+    }
+
+    // 6. Role Levels (non-default: profesional, trainee_junior, or omission of preprofesional)
+    const isRoleDefault =
+      filters.roleLevels.length === 1 && filters.roleLevels[0] === 'preprofesional';
+    if (!isRoleDefault) {
+      const nonDefaultRoles = filters.roleLevels.filter(
+        (r) => r !== 'preprofesional'
+      );
+      nonDefaultRoles.forEach((r) => {
+        const roleLabels: Record<string, string> = {
+          profesional: 'Profesional',
+          trainee_junior: 'Trainee / Junior',
+        };
+        list.push({
+          id: `role-${r}`,
+          label: `Rol: ${roleLabels[r] || r}`,
+          onRemove: () => toggleRoleLevel(r as Exclude<RoleLevel, 'unknown'>),
+          colorClass: 'bg-indigo-50 border-indigo-200 text-indigo-900',
+        });
+      });
+      if (!filters.roleLevels.includes('preprofesional')) {
+        list.push({
+          id: 'role-no-preprof',
+          label: 'Sin Preprofesional',
+          onRemove: () => toggleRoleLevel('preprofesional'),
+          colorClass: 'bg-slate-100 border-slate-300 text-slate-800',
+        });
+      }
+    }
+
+    // 7. Modalities (when non-default < 3)
+    if (filters.modalities.length < 3) {
+      filters.modalities.forEach((m) => {
+        list.push({
+          id: `mod-${m}`,
+          label: `Modalidad: ${m}`,
+          onRemove: () => toggleModality(m),
+          colorClass: 'bg-teal-50 border-teal-200 text-teal-900',
+        });
+      });
+    }
+
+    // 8. Sources
+    filters.sources.forEach((s) => {
+      list.push({
+        id: `src-${s}`,
+        label: `Portal: ${SOURCE_LABELS[s] || s}`,
+        onRemove: () => toggleSource(s),
+        colorClass: 'bg-sky-50 border-sky-200 text-sky-900',
+      });
+    });
+
+    // 9. Salary filter
+    if (filters.salaryFilter !== 'any') {
+      const salaryLabels: Record<SalaryFilterKey, string> = {
+        any: 'Cualquiera',
+        has_salary: 'Con salario explícito',
+        gte_1130: 'S/ 1,130+ (RMV)',
+        gte_1500: 'S/ 1,500+',
+        gte_2000: 'S/ 2,000+',
+      };
+      list.push({
+        id: `salary-${filters.salaryFilter}`,
+        label: `Salario: ${salaryLabels[filters.salaryFilter] || filters.salaryFilter}`,
+        onRemove: () => onChange({ ...filters, salaryFilter: 'any' }),
+        colorClass: 'bg-emerald-50 border-emerald-200 text-emerald-900',
+      });
+    }
+
+    // 10. Publication date / maxAgeDays
+    if (filters.maxAgeDays !== 14) {
+      list.push({
+        id: 'max-age',
+        label:
+          filters.maxAgeDays === null
+            ? 'Histórico DB'
+            : `${filters.maxAgeDays} días`,
+        onRemove: () => onChange({ ...filters, maxAgeDays: 14 }),
+        colorClass: 'bg-slate-100 border-slate-300 text-slate-800',
+      });
+    }
+
+    // 11. Minimum AI score
+    if (filters.minScore > 0) {
+      list.push({
+        id: 'min-score',
+        label: `Afinidad: ${filters.minScore}%+`,
+        onRemove: () => onChange({ ...filters, minScore: 0 }),
+        colorClass: 'bg-violet-50 border-violet-200 text-violet-900',
+      });
+    }
+
+    // 12. Include AI discarded
+    if (filters.includeDiscardedAi) {
+      list.push({
+        id: 'discarded-ai',
+        label: 'Incluye descartadas IA',
+        onRemove: () => onChange({ ...filters, includeDiscardedAi: false }),
+        colorClass: 'bg-rose-50 border-rose-200 text-rose-800',
+      });
+    }
+
+    // 13. Special Lima options
+    if (!filters.keepRemoteWhenDistrictFiltered) {
+      list.push({
+        id: 'no-remote-district',
+        label: 'Sin remoto distrital',
+        onRemove: () =>
+          onChange({ ...filters, keepRemoteWhenDistrictFiltered: true }),
+        colorClass: 'bg-slate-100 border-slate-300 text-slate-800',
+      });
+    }
+    if (filters.includeLimaUnspecifiedDistrict) {
+      list.push({
+        id: 'lima-unspecified',
+        label: 'Lima sin distrito',
+        onRemove: () =>
+          onChange({ ...filters, includeLimaUnspecifiedDistrict: false }),
+        colorClass: 'bg-slate-100 border-slate-300 text-slate-800',
+      });
+    }
+
+    return list;
+  }, [
+    filters,
+    onChange,
+    toggleDistrictInclusion,
+    toggleDistrictExclusion,
+    toggleCategory,
+    toggleModality,
+    toggleSource,
+    toggleRoleLevel,
+    toggleEnglishLevel,
+  ]);
+
+  const hasVisibleChips = activeChips.length > 0;
   const isAteExcluded = filters.excludedDistricts.includes('Ate');
 
   return (
@@ -268,7 +528,7 @@ export function FilterSidebar({
                 Restaurar perfil
               </button>
             )}
-            {hasActiveFilters && (
+            {hasVisibleChips && (
               <button
                 type="button"
                 onClick={handleClearAll}
@@ -338,143 +598,29 @@ export function FilterSidebar({
       </div>
 
       {/* ------------------------------------------------------------- */}
-      {/* Active Filter Chips Summary                                   */}
+      {/* Active Filter Chips Summary (Only rendered when chips exist)  */}
       {/* ------------------------------------------------------------- */}
-      {hasActiveFilters && (
-        <div className="p-3 border-b border-slate-100 bg-slate-50/30 flex flex-wrap gap-1.5 text-xs">
-          {filters.search && (
-            <span className="inline-flex items-center gap-1 rounded-md bg-blue-50 border border-blue-200/80 px-2 py-0.5 text-[11px] font-medium text-blue-900">
-              <span className="truncate max-w-[120px]">
-                &ldquo;{filters.search}&rdquo;
-              </span>
-              <button
-                type="button"
-                onClick={() => onChange({ ...filters, search: '' })}
-                className="hover:text-blue-950"
-                aria-label={`Quitar filtro de búsqueda ${filters.search}`}
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          )}
-
-          {filters.includedDistricts.map((d) => (
+      {hasVisibleChips && (
+        <div
+          data-testid="filter-chips-summary"
+          className="p-3 border-b border-slate-100 bg-slate-50/30 flex flex-wrap gap-1.5 text-xs"
+        >
+          {activeChips.map((chip) => (
             <span
-              key={`chip-inc-${d}`}
-              className="inline-flex items-center gap-1 rounded-md bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[11px] font-medium text-emerald-900"
+              key={chip.id}
+              className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium ${chip.colorClass}`}
             >
-              <span>{d}</span>
+              <span className="truncate max-w-[140px]">{chip.label}</span>
               <button
                 type="button"
-                onClick={() => toggleDistrictInclusion(d)}
-                className="hover:text-emerald-950"
-                aria-label={`Quitar distrito ${d}`}
+                onClick={chip.onRemove}
+                className="hover:opacity-75"
+                aria-label={`Quitar filtro ${chip.label}`}
               >
                 <X className="h-3 w-3" />
               </button>
             </span>
           ))}
-
-          {filters.excludedDistricts.map((d) => (
-            <span
-              key={`chip-exc-${d}`}
-              className="inline-flex items-center gap-1 rounded-md bg-rose-50 border border-rose-200 px-2 py-0.5 text-[11px] font-medium text-rose-900"
-            >
-              <span>No: {d}</span>
-              <button
-                type="button"
-                onClick={() => toggleDistrictExclusion(d)}
-                className="hover:text-rose-950"
-                aria-label={`Quitar exclusión de ${d}`}
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
-
-          {filters.categories.map((c) => (
-            <span
-              key={`chip-cat-${c}`}
-              className="inline-flex items-center gap-1 rounded-md bg-purple-50 border border-purple-200 px-2 py-0.5 text-[11px] font-medium text-purple-900"
-            >
-              <span className="truncate max-w-[110px]">{c}</span>
-              <button
-                type="button"
-                onClick={() => toggleCategory(c)}
-                className="hover:text-purple-950"
-                aria-label={`Quitar categoría ${c}`}
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
-
-          {filters.englishOnly && (
-            <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 border border-amber-200 px-2 py-0.5 text-[11px] font-medium text-amber-900">
-              <span>
-                Inglés
-                {filters.englishLevels.length > 0
-                  ? ` (${filters.englishLevels.join(', ')})`
-                  : ''}
-              </span>
-              <button
-                type="button"
-                onClick={() =>
-                  onChange({ ...filters, englishOnly: false, englishLevels: [] })
-                }
-                className="hover:text-amber-950"
-                aria-label="Quitar filtro de inglés"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          )}
-
-          {filters.salaryFilter !== 'any' && (
-            <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 border border-slate-300 px-2 py-0.5 text-[11px] font-medium text-slate-800">
-              <span>Salario filtrado</span>
-              <button
-                type="button"
-                onClick={() => onChange({ ...filters, salaryFilter: 'any' })}
-                className="hover:text-slate-950"
-                aria-label="Quitar filtro salarial"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          )}
-
-          {filters.maxAgeDays !== 14 && (
-            <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 border border-slate-300 px-2 py-0.5 text-[11px] font-medium text-slate-800">
-              <span>
-                {filters.maxAgeDays === null
-                  ? 'Histórico DB'
-                  : `${filters.maxAgeDays} días`}
-              </span>
-              <button
-                type="button"
-                onClick={() => onChange({ ...filters, maxAgeDays: 14 })}
-                className="hover:text-slate-950"
-                aria-label="Restablecer antigüedad"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          )}
-
-          {filters.includeDiscardedAi && (
-            <span className="inline-flex items-center gap-1 rounded-md bg-rose-50 border border-rose-200 px-2 py-0.5 text-[11px] font-medium text-rose-800">
-              <span>Incluye descartadas IA</span>
-              <button
-                type="button"
-                onClick={() => onChange({ ...filters, includeDiscardedAi: false })}
-                className="hover:text-rose-950"
-                aria-label="Quitar descartadas por IA"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          )}
         </div>
       )}
 
@@ -533,10 +679,14 @@ export function FilterSidebar({
             </div>
           </div>
 
-          {/* District list search */}
+          {/* District list search with accessible label */}
           <div className="relative">
+            <label htmlFor="filter-district-search" className="sr-only">
+              Filtrar distritos de Lima
+            </label>
             <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
             <input
+              id="filter-district-search"
               type="text"
               value={districtQuery}
               onChange={(e) => setDistrictQuery(e.target.value)}
