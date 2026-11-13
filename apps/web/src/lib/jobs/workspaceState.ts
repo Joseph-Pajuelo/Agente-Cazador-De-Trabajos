@@ -153,6 +153,30 @@ export function applyOptimisticCrmTransition(
 }
 
 /**
+ * Reverts an individual job's CRM status and notes back to its previous state on server action failure.
+ */
+export function rollbackJobTransition(
+  jobs: JobSummary[],
+  listingId: number | string,
+  previousJobState: {
+    user_status?: CrmStatus | null;
+    applied_at?: string | null;
+    user_notes?: string | null;
+  }
+): JobSummary[] {
+  const targetId = String(listingId);
+  return jobs.map((job) => {
+    if (String(job.id) !== targetId) return job;
+    return {
+      ...job,
+      user_status: previousJobState.user_status ?? null,
+      applied_at: previousJobState.applied_at ?? null,
+      user_notes: previousJobState.user_notes ?? null,
+    };
+  });
+}
+
+/**
  * Pure filtering and sorting engine for the Master-Detail Explorer.
  * Integrates CRM tabs, modalities, score cutoff, date recency, and smart search.
  */

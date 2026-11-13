@@ -5,15 +5,14 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Sparkles, AlertCircle, CheckCircle2, ArrowLeft } from 'lucide-react';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
+import { sanitizeNextPath } from '@/lib/auth/safeRedirect';
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // Validate next url for safe relative redirect
-  const rawNext = searchParams.get('next') || '/';
-  const safeNext =
-    rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/';
+  // Validate next url for safe relative redirect (prevents backslash and open-redirect bypasses)
+  const safeNext = sanitizeNextPath(searchParams.get('next'));
 
   const [mode, setMode] = React.useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = React.useState('');

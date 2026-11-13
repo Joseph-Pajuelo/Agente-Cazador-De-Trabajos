@@ -46,8 +46,12 @@ export function JobCard({
 
   return (
     <article
-      onClick={onSelect}
+      onClick={(e) => {
+        if ((e.target as HTMLElement).closest('button, a')) return;
+        onSelect();
+      }}
       onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           onSelect();

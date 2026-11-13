@@ -40,22 +40,35 @@ export function JobsWorkspace({
     DEFAULT_WORKSPACE_FILTERS
   );
 
+  // Synchronize initialJobs when props change (e.g., after router.refresh() upon login)
+  React.useEffect(() => {
+    setJobs(initialJobs);
+  }, [initialJobs]);
+
   // Selected job
   const [selectedJobId, setSelectedJobId] = React.useState<number | string | null>(
     initialJobs.length > 0 ? initialJobs[0].id : null
   );
 
+  // Explicit mobile drawer visibility (starts closed on mobile to prevent full-screen lock)
+  const [isMobileDetailOpen, setIsMobileDetailOpen] = React.useState<boolean>(false);
+
   // Description cache: listingId -> text
   const [descriptions, setDescriptions] = React.useState<Record<string, string>>({});
   const descriptionsRef = React.useRef<Record<string, string>>({});
   descriptionsRef.current = descriptions;
-  const [isLoadingDescription, setIsLoadingDescription] = React.useState(false);
+
+  // Track the exact job ID currently being loaded to eliminate race conditions
+  const [loadingDescriptionJobId, setLoadingDescriptionJobId] = React.useState<string | null>(null);
 
   // Guest AuthModal
   const [isAuthModalOpen, setIsAuthModalOpen] = React.useState(false);
   const [authPrompt, setAuthPrompt] = React.useState<string>(
     'Inicia sesión o crea una cuenta gratis para guardar y gestionar vacantes en tu radar personal.'
   );
+
+  // Transient error message for failed mutations
+  const [actionError, setActionError] = React.useState<string | null>(null);
 
   // Historical query pagination state
   const [historicalJobs, setHistoricalJobs] = React.useState<JobSummary[]>([]);
@@ -64,6 +77,18 @@ export function JobsWorkspace({
   const [isLoadingHistorical, setIsLoadingHistorical] = React.useState<boolean>(false);
 
   const isHistorical = requiresHistoricalQuery(filters);
+
+  // Handle Escape key to close mobile drawer
+  React.useEffect(() => {
+    if (!isMobileDetailOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsMobileDetailOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isMobileDetailOpen]);
 
   // Pool of jobs for filtering
   const effectivePool = React.useMemo(() => {
@@ -109,21 +134,33 @@ export function JobsWorkspace({
     );
   }, [filteredJobs, selectedJobId]);
 
+  // Derived loading state comparing against currently selected job
+  const isLoadingDescription = Boolean(
+    selectedJob && loadingDescriptionJobId === String(selectedJob.id)
+  );
+
   // Fetch description when selected job changes
   const selectedListingId = selectedJob ? selectedJob.id : null;
   React.useEffect(() => {
-    if (!selectedListingId) return;
+    if (!selectedListingId) {
+      setLoadingDescriptionJobId(null);
+      return;
+    }
 
     const idKey = String(selectedListingId);
     if (descriptionsRef.current[idKey] !== undefined) {
+      setLoadingDescriptionJobId(null);
       return; // Already loaded or cached
     }
 
     const numericId = Number(selectedListingId);
-    if (!numericId || numericId <= 0) return;
+    if (!numericId || numericId <= 0) {
+      setLoadingDescriptionJobId(null);
+      return;
+    }
 
     let isMounted = true;
-    setIsLoadingDescription(true);
+    setLoadingDescriptionJobId(idKey);
 
     getJobDescription(numericId)
       .then((res) => {
@@ -137,7 +174,11 @@ export function JobsWorkspace({
         console.error('Failed to fetch job description:', err);
       })
       .finally(() => {
-        if (isMounted) setIsLoadingDescription(false);
+        if (isMounted) {
+          setLoadingDescriptionJobId((current) =>
+            current === idKey ? null : current
+          );
+        }
       });
 
     return () => {
@@ -206,12 +247,15 @@ export function JobsWorkspace({
     setIsLoadingHistorical(true);
 
     try {
+      const activeModalities = modalitiesStr ? modalitiesStr.split(',') : [];
+      const activeSources = sourcesStr ? sourcesStr.split(',') : [];
+
       const res = await searchHistoricalJobs({
-        query: filters.search,
-        includeDiscardedAi: filters.includeDiscardedAi,
-        minScore: filters.minScore,
-        modalities: filters.modalities,
-        sources: filters.sources,
+        query: filterSearch,
+        includeDiscardedAi: filterIncludeAi,
+        minScore: filterMinScore,
+        modalities: activeModalities,
+        sources: activeSources,
         maxAgeDays: null,
         offset: historicalOffset,
         limit: 20,
@@ -227,7 +271,7 @@ export function JobsWorkspace({
     }
   };
 
-  // Intercept guest CRM mutations
+  // Intercept guest CRM mutations with robust rollback on server failure
   const handleCrmStatusChange = (status: CrmStatus) => {
     if (!selectedJob) return;
 
@@ -239,8 +283,11 @@ export function JobsWorkspace({
       return;
     }
 
-    // Authenticated user: Optimistic update
+    // Capture snapshots for rollback
+    const prevJobs = jobs;
+    const prevHistorical = historicalJobs;
     const targetId = selectedJob.id;
+
     startTransition(() => {
       setJobs((prev) =>
         applyOptimisticCrmTransition(prev, targetId, status)
@@ -258,11 +305,25 @@ export function JobsWorkspace({
         listingId: numericId,
         status,
         notes: selectedJob.user_notes || undefined,
-      }).then((res) => {
-        if (!res.ok) {
-          console.error('Failed to persist CRM status:', res.error);
-        }
-      });
+      })
+        .then((res) => {
+          if (!res.ok) {
+            console.error('Failed to persist CRM status:', res.error);
+            // Rollback optimistic update
+            setJobs(prevJobs);
+            setHistoricalJobs(prevHistorical);
+            setActionError('No se pudo guardar el estado de la postulación. Intenta nuevamente.');
+            setTimeout(() => setActionError(null), 4000);
+          }
+        })
+        .catch((err) => {
+          console.error('Exception persisting CRM status:', err);
+          // Rollback optimistic update
+          setJobs(prevJobs);
+          setHistoricalJobs(prevHistorical);
+          setActionError('Error de red al sincronizar el estado.');
+          setTimeout(() => setActionError(null), 4000);
+        });
     }
   };
 
@@ -275,6 +336,8 @@ export function JobsWorkspace({
       return;
     }
 
+    const prevJobs = jobs;
+    const prevHistorical = historicalJobs;
     const nextStatus: CrmStatus =
       job.user_status === 'favorite' ? 'to_apply' : 'favorite';
 
@@ -295,7 +358,22 @@ export function JobsWorkspace({
         listingId: numericId,
         status: nextStatus,
         notes: job.user_notes || undefined,
-      });
+      })
+        .then((res) => {
+          if (!res.ok) {
+            console.error('Failed to toggle favorite:', res.error);
+            setJobs(prevJobs);
+            setHistoricalJobs(prevHistorical);
+            setActionError('No se pudo actualizar la vacante destacada.');
+            setTimeout(() => setActionError(null), 4000);
+          }
+        })
+        .catch(() => {
+          setJobs(prevJobs);
+          setHistoricalJobs(prevHistorical);
+          setActionError('Error de red al actualizar vacante destacada.');
+          setTimeout(() => setActionError(null), 4000);
+        });
     }
   };
 
@@ -310,6 +388,8 @@ export function JobsWorkspace({
       return false;
     }
 
+    const prevJobs = jobs;
+    const prevHistorical = historicalJobs;
     const targetId = selectedJob.id;
     const currentStatus = selectedJob.user_status || 'to_apply';
 
@@ -326,14 +406,35 @@ export function JobsWorkspace({
 
     const numericId = Number(targetId);
     if (numericId > 0) {
-      const res = await upsertJobState({
-        listingId: numericId,
-        status: currentStatus,
-        notes,
-      });
-      return res.ok;
+      try {
+        const res = await upsertJobState({
+          listingId: numericId,
+          status: currentStatus,
+          notes,
+        });
+
+        if (!res.ok) {
+          setJobs(prevJobs);
+          setHistoricalJobs(prevHistorical);
+          setActionError('No se pudo guardar la nota en el servidor.');
+          setTimeout(() => setActionError(null), 4000);
+          return false;
+        }
+        return true;
+      } catch {
+        setJobs(prevJobs);
+        setHistoricalJobs(prevHistorical);
+        setActionError('Error de red al guardar la nota.');
+        setTimeout(() => setActionError(null), 4000);
+        return false;
+      }
     }
     return false;
+  };
+
+  const handleCardSelect = (jobId: number | string) => {
+    setSelectedJobId(jobId);
+    setIsMobileDetailOpen(true);
   };
 
   return (
@@ -356,6 +457,25 @@ export function JobsWorkspace({
               </code>.
             </p>
           </div>
+        </div>
+      )}
+
+      {/* Error alert on failed mutations */}
+      {actionError && (
+        <div
+          role="alert"
+          aria-live="polite"
+          className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800 flex items-center justify-between"
+        >
+          <span>{actionError}</span>
+          <button
+            type="button"
+            onClick={() => setActionError(null)}
+            className="text-red-600 hover:text-red-800 font-bold px-2 py-0.5"
+            aria-label="Cerrar aviso"
+          >
+            ✕
+          </button>
         </div>
       )}
 
@@ -400,7 +520,7 @@ export function JobsWorkspace({
                 key={job.deduplication_hash || job.id}
                 job={job}
                 isSelected={selectedJob ? String(selectedJob.id) === String(job.id) : false}
-                onSelect={() => setSelectedJobId(job.id)}
+                onSelect={() => handleCardSelect(job.id)}
                 onToggleFavorite={handleToggleFavorite}
               />
             ))}
@@ -455,12 +575,12 @@ export function JobsWorkspace({
         </div>
       )}
 
-      {/* 4. Mobile Drawer / Modal when a job is clicked on small screens */}
-      <div className="block lg:hidden">
-        {selectedJob && (
+      {/* 4. Mobile Drawer / Modal when a job is explicitly clicked on small screens */}
+      {isMobileDetailOpen && selectedJob && (
+        <div className="block lg:hidden">
           <div
             className="fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
-            onClick={() => setSelectedJobId(null)}
+            onClick={() => setIsMobileDetailOpen(false)}
           >
             <div
               className="h-[88vh] sm:h-[82vh] w-full max-w-2xl bg-white rounded-t-3xl sm:rounded-2xl overflow-hidden shadow-2xl"
@@ -472,12 +592,12 @@ export function JobsWorkspace({
                 isLoadingDescription={isLoadingDescription}
                 onStatusChange={handleCrmStatusChange}
                 onSaveNotes={handleSaveNotes}
-                onClose={() => setSelectedJobId(null)}
+                onClose={() => setIsMobileDetailOpen(false)}
               />
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* 5. Guest Auth Modal */}
       <AuthModal

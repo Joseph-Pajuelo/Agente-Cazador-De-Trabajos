@@ -7,8 +7,10 @@ import {
   requiresHistoricalQuery,
   canMutateCrm,
   applyOptimisticCrmTransition,
+  rollbackJobTransition,
   filterAndSortWorkspaceJobs,
 } from '../src/lib/jobs/workspaceState';
+import { sanitizeNextPath } from '../src/lib/auth/safeRedirect';
 
 const sampleJobs: JobSummary[] = [
   {
@@ -358,6 +360,67 @@ describe('Workspace State & Pure Reducer Helpers', () => {
         const next = Number(result.jobs[i + 1].final_ranking_score) || 0;
         expect(cur).toBeGreaterThanOrEqual(next);
       }
+    });
+  });
+
+  describe('6. rollbackJobTransition', () => {
+    it('restores previous CRM status and notes upon server failure', () => {
+      const original = sampleJobs[0];
+      const mutated = applyOptimisticCrmTransition(sampleJobs, original.id, 'applied', 'Nueva nota');
+
+      expect(mutated.find((j) => j.id === original.id)?.user_status).toBe('applied');
+
+      const restored = rollbackJobTransition(mutated, original.id, {
+        user_status: original.user_status,
+        applied_at: original.applied_at,
+        user_notes: original.user_notes,
+      });
+
+      const target = restored.find((j) => j.id === original.id);
+      expect(target?.user_status).toBeNull();
+      expect(target?.applied_at).toBeNull();
+      expect(target?.user_notes).toBeNull();
+    });
+  });
+
+  describe('7. sanitizeNextPath open redirect prevention', () => {
+    it('allows safe relative paths', () => {
+      expect(sanitizeNextPath('/pipeline')).toBe('/pipeline');
+      expect(sanitizeNextPath('/profile?tab=saved#details')).toBe('/profile?tab=saved#details');
+      expect(sanitizeNextPath('/')).toBe('/');
+      expect(sanitizeNextPath('/jobs/123')).toBe('/jobs/123');
+    });
+
+    it('rejects backslash bypass vectors like /\\evil.com or \\\\evil.com', () => {
+      expect(sanitizeNextPath('/\\evil.com')).toBe('/');
+      expect(sanitizeNextPath('/\\/evil.com')).toBe('/');
+      expect(sanitizeNextPath('\\evil.com')).toBe('/');
+      expect(sanitizeNextPath('/test\\evil.com')).toBe('/');
+    });
+
+    it('rejects double leading slashes //evil.com', () => {
+      expect(sanitizeNextPath('//evil.com')).toBe('/');
+      expect(sanitizeNextPath('///evil.com')).toBe('/');
+      expect(sanitizeNextPath('//')).toBe('/');
+    });
+
+    it('rejects external absolute URLs and schemes', () => {
+      expect(sanitizeNextPath('https://evil.com')).toBe('/');
+      expect(sanitizeNextPath('http://evil.com/phish')).toBe('/');
+      expect(sanitizeNextPath('javascript:alert(1)')).toBe('/');
+      expect(sanitizeNextPath('data:text/html,evil')).toBe('/');
+    });
+
+    it('handles null, undefined, empty string and whitespace cleanly', () => {
+      expect(sanitizeNextPath(null)).toBe('/');
+      expect(sanitizeNextPath(undefined)).toBe('/');
+      expect(sanitizeNextPath('')).toBe('/');
+      expect(sanitizeNextPath('   ')).toBe('/');
+    });
+
+    it('uses custom fallback when provided', () => {
+      expect(sanitizeNextPath('//evil.com', '/fallback')).toBe('/fallback');
+      expect(sanitizeNextPath(null, '/login')).toBe('/login');
     });
   });
 });
