@@ -7,6 +7,7 @@ export interface ProfileFormState {
   university: string;
   current_cycle: string;
   preferred_districts: string[];
+  excluded_districts: string[];
   modality_priority: string[];
   target_areas: string[];
   core_skills: string;
@@ -32,6 +33,29 @@ export const AVAILABLE_DISTRICTS: readonly string[] = [
   'Cercado de Lima',
   'Los Olivos',
   'Callao',
+] as const;
+
+/**
+ * Common Lima districts for exclusion chips in ProfileForm
+ */
+export const COMMON_EXCLUDED_DISTRICTS: readonly string[] = [
+  'Ate',
+  'Santa Anita',
+  'San Juan de Lurigancho',
+  'Lurigancho - Chosica',
+  'Callao',
+  'San Martín de Porres',
+  'Los Olivos',
+  'Independencia',
+  'Villa El Salvador',
+  'Villa María del Triunfo',
+  'San Juan de Miraflores',
+  'Chorrillos',
+  'La Victoria',
+  'Rímac',
+  'Breña',
+  'Surquillo',
+  'Lima Centro',
 ] as const;
 
 export const AVAILABLE_MODALITIES: readonly string[] = [
@@ -126,6 +150,7 @@ export function toProfileFormState(profile: UserProfile | null): ProfileFormStat
       university: '',
       current_cycle: '',
       preferred_districts: [],
+      excluded_districts: ['Ate'],
       modality_priority: ['Híbrido', 'Presencial', 'Remoto'],
       target_areas: [],
       core_skills: '',
@@ -154,6 +179,9 @@ export function toProfileFormState(profile: UserProfile | null): ProfileFormStat
     preferred_districts: Array.isArray(profile.preferred_districts)
       ? [...profile.preferred_districts]
       : [],
+    excluded_districts: Array.isArray(profile.excluded_districts)
+      ? [...profile.excluded_districts]
+      : ['Ate'],
     modality_priority:
       Array.isArray(profile.modality_priority) && profile.modality_priority.length > 0
         ? [...profile.modality_priority]
@@ -187,6 +215,7 @@ export function toProfileUpdateInput(formState: ProfileFormState): ProfileUpdate
     university: formState.university.trim(),
     current_cycle: formState.current_cycle.trim(),
     preferred_districts: formState.preferred_districts,
+    excluded_districts: formState.excluded_districts,
     modality_priority: formState.modality_priority,
     target_areas: formState.target_areas,
     technical_skills,

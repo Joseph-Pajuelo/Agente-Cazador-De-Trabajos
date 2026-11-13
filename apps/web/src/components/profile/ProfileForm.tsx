@@ -15,6 +15,7 @@ import { UserProfile } from '@/lib/domain/types';
 import {
   ProfileFormState,
   AVAILABLE_DISTRICTS,
+  COMMON_EXCLUDED_DISTRICTS,
   COMMON_TARGET_AREAS,
   toProfileFormState,
   toProfileUpdateInput,
@@ -42,6 +43,16 @@ export function ProfileForm({ initialProfile, userEmail }: ProfileFormProps) {
         ? prev.preferred_districts.filter((d) => d !== district)
         : [...prev.preferred_districts, district];
       return { ...prev, preferred_districts: nextDistricts };
+    });
+  };
+
+  const toggleExcludedDistrict = (district: string) => {
+    setFormState((prev) => {
+      const exists = prev.excluded_districts.includes(district);
+      const nextExcluded = exists
+        ? prev.excluded_districts.filter((d) => d !== district)
+        : [...prev.excluded_districts, district];
+      return { ...prev, excluded_districts: nextExcluded };
     });
   };
 
@@ -307,6 +318,45 @@ export function ProfileForm({ initialProfile, userEmail }: ProfileFormProps) {
                   >
                     <span>{district}</span>
                     {isSelected && <span className="ml-1.5 text-blue-200">✓</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Excluded Districts (Radar Exclusions) */}
+          <div className="space-y-3 pt-4 border-t border-slate-100">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <label className="block text-xs font-semibold text-slate-800">
+                  Distritos a ocultar por defecto (Exclusiones del Radar)
+                </label>
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                  Opcional
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">
+                Las ofertas de estos distritos se excluirán automáticamente del radar (preseleccionado Ate por accesibilidad):
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {COMMON_EXCLUDED_DISTRICTS.map((district) => {
+                const isExcluded = formState.excluded_districts.includes(district);
+                return (
+                  <button
+                    key={district}
+                    type="button"
+                    aria-pressed={isExcluded}
+                    onClick={() => toggleExcludedDistrict(district)}
+                    className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                      isExcluded
+                        ? 'bg-rose-900 text-white font-semibold shadow-2xs'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200/80'
+                    }`}
+                  >
+                    <span>{district}</span>
+                    {isExcluded && <span className="ml-1.5 text-rose-200">✕</span>}
                   </button>
                 );
               })}

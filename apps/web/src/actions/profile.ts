@@ -64,6 +64,8 @@ export async function updateProfile(
     if (d.preferred_districts !== undefined) updateData.preferred_districts = d.preferred_districts;
     else if (d.target_districts !== undefined) updateData.preferred_districts = d.target_districts;
 
+    if (d.excluded_districts !== undefined) updateData.excluded_districts = d.excluded_districts;
+
     if (d.modality_priority !== undefined) updateData.modality_priority = d.modality_priority;
     if (d.target_areas !== undefined) updateData.target_areas = d.target_areas;
 
@@ -90,3 +92,5 @@ export async function updateProfile(
     return { ok: false, error: 'AUTH_REQUIRED' };
   }
 }
+
+export const updateUserProfile = updateProfile;

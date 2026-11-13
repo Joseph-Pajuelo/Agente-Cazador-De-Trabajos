@@ -7,6 +7,7 @@ import {
 } from '../src/actions/profile';
 import { shouldRedirectToLogin } from '../src/lib/supabase/middleware';
 import { buildHistoricalSearchFilters } from '../src/lib/supabase/queries';
+import { getJobDetail, getJobDescription } from '../src/actions/jobs';
 
 describe('Task 4: Supabase Auth, Middleware, Queries & Server Actions', () => {
   describe('1. crmStateSchema', () => {
@@ -99,6 +100,20 @@ describe('Task 4: Supabase Auth, Middleware, Queries & Server Actions', () => {
         preferred_districts: Array.from({ length: 60 }, (_, i) => `Distrito ${i}`),
       };
       expect(profileUpdateSchema.safeParse(tooManyDistricts).success).toBe(false);
+
+      const tooManyExcludedDistricts = {
+        excluded_districts: Array.from({ length: 51 }, (_, i) => `Distrito ${i}`),
+      };
+      expect(profileUpdateSchema.safeParse(tooManyExcludedDistricts).success).toBe(false);
+    });
+
+    it('accepts and validates excluded_districts array', async () => {
+      const payloadWithExclusions = {
+        excluded_districts: ['Ate', 'Santa Anita'],
+      };
+      const result = await validateProfileUpdatePayload(payloadWithExclusions);
+      expect(result.ok).toBe(true);
+      expect(profileUpdateSchema.safeParse(payloadWithExclusions).success).toBe(true);
     });
   });
 
@@ -186,6 +201,79 @@ describe('Task 4: Supabase Auth, Middleware, Queries & Server Actions', () => {
       expect(filters.ftsQuery).toBeNull();
       expect(filters.didYouMean).toBeNull();
       expect(filters.cutoffDate).toBeNull();
+      expect(filters.includedDistricts).toEqual([]);
+      expect(filters.excludedDistricts).toEqual([]);
+      expect(filters.keepRemoteWhenDistrictFiltered).toBe(true);
+      expect(filters.includeLimaUnspecifiedDistrict).toBe(false);
+      expect(filters.categories).toEqual([]);
+      expect(filters.roleLevels).toEqual([]);
+      expect(filters.englishOnly).toBe(false);
+      expect(filters.englishLevels).toEqual([]);
+      expect(filters.salaryFilter).toBe('any');
+    });
+
+    it('parses extended Lima filters, English, role level, and salary options cleanly', () => {
+      const filters = buildHistoricalSearchFilters({
+        query: 'python',
+        includedDistricts: ['San Isidro', 'Miraflores'],
+        excludedDistricts: ['Ate', 'Santa Anita'],
+        keepRemoteWhenDistrictFiltered: false,
+        includeLimaUnspecifiedDistrict: true,
+        categories: ['Desarrollo & Software', 'Datos, BI & IA'],
+        roleLevels: ['preprofesional', 'profesional'],
+        englishOnly: true,
+        englishLevels: ['intermedio', 'avanzado'],
+        salaryFilter: 'gte_1500',
+      });
+
+      expect(filters.ftsQuery).toBe('python');
+      expect(filters.includedDistricts).toEqual(['San Isidro', 'Miraflores']);
+      expect(filters.excludedDistricts).toEqual(['Ate', 'Santa Anita']);
+      expect(filters.keepRemoteWhenDistrictFiltered).toBe(false);
+      expect(filters.includeLimaUnspecifiedDistrict).toBe(true);
+      expect(filters.categories).toEqual(['Desarrollo & Software', 'Datos, BI & IA']);
+      expect(filters.roleLevels).toEqual(['preprofesional', 'profesional']);
+      expect(filters.englishOnly).toBe(true);
+      expect(filters.englishLevels).toEqual(['intermedio', 'avanzado']);
+      expect(filters.salaryFilter).toBe('gte_1500');
+    });
+  });
+
+  describe('6. Lazy getJobDetail & getJobDescription wrapper', () => {
+    it('validates listingId and rejects invalid inputs', async () => {
+      expect(await getJobDetail(0)).toEqual({
+        rawDescription: null,
+        reasoningChain: null,
+        error: 'INVALID_LISTING_ID',
+      });
+      expect(await getJobDetail(-1)).toEqual({
+        rawDescription: null,
+        reasoningChain: null,
+        error: 'INVALID_LISTING_ID',
+      });
+      expect(await getJobDescription(0)).toEqual({
+        rawDescription: null,
+        error: 'INVALID_LISTING_ID',
+      });
+      expect(await getJobDescription(-5)).toEqual({
+        rawDescription: null,
+        error: 'INVALID_LISTING_ID',
+      });
+    });
+
+    it('returns SUPABASE_NOT_CONFIGURED gracefully when unconfigured in test environment', async () => {
+      const detail = await getJobDetail(101);
+      expect(detail).toEqual({
+        rawDescription: null,
+        reasoningChain: null,
+        error: 'SUPABASE_NOT_CONFIGURED',
+      });
+
+      const desc = await getJobDescription(101);
+      expect(desc).toEqual({
+        rawDescription: null,
+        error: 'SUPABASE_NOT_CONFIGURED',
+      });
     });
   });
 });

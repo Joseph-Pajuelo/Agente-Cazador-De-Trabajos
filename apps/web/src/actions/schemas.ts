@@ -17,6 +17,7 @@ export const profileUpdateSchema = z
     cycle_label: z.string().max(50).optional(),
     preferred_districts: z.array(z.string().max(50)).max(50).optional(),
     target_districts: z.array(z.string().max(50)).max(50).optional(),
+    excluded_districts: z.array(z.string().max(50)).max(50).optional(),
     modality_priority: z.array(z.string().max(50)).max(10).optional(),
     target_areas: z.array(z.string().max(50)).max(20).optional(),
     technical_skills: z.record(z.unknown()).optional(),

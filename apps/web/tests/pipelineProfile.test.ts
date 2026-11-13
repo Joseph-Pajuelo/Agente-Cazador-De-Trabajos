@@ -320,6 +320,7 @@ describe('Task 6: Pipeline Board & Profile Form Helpers', () => {
           tools: ['Git', 'Docker'],
         },
         is_admin: false,
+        excluded_districts: ['Ate', 'Santa Anita'],
       };
 
       it('converts UserProfile to UI-friendly ProfileFormState', () => {
@@ -330,6 +331,7 @@ describe('Task 6: Pipeline Board & Profile Form Helpers', () => {
         expect(state.university).toBe('Universidad Nacional de Ingeniería');
         expect(state.current_cycle).toBe('8vo ciclo');
         expect(state.preferred_districts).toEqual(['San Isidro', 'Miraflores']);
+        expect(state.excluded_districts).toEqual(['Ate', 'Santa Anita']);
         expect(state.modality_priority).toEqual(['Híbrido', 'Presencial', 'Remoto']);
         expect(state.target_areas).toEqual(['Desarrollo Backend', 'Datos']);
         expect(state.core_skills).toBe('Python, SQL');
@@ -340,16 +342,24 @@ describe('Task 6: Pipeline Board & Profile Form Helpers', () => {
         expect((state as unknown as Record<string, unknown>).is_admin).toBeUndefined();
       });
 
-      it('provides sensible defaults when profile is null', () => {
+      it('provides sensible defaults when profile is null or has no excluded_districts', () => {
         const state = toProfileFormState(null);
 
         expect(state.full_name).toBe('');
         expect(state.university).toBe('');
         expect(state.current_cycle).toBe('');
         expect(state.preferred_districts).toEqual([]);
+        expect(state.excluded_districts).toEqual(['Ate']);
         expect(state.modality_priority).toEqual(['Híbrido', 'Presencial', 'Remoto']);
         expect(state.target_areas).toEqual([]);
         expect(state.core_skills).toBe('');
+
+        const profileWithoutExclusions: UserProfile = {
+          ...mockProfile,
+          excluded_districts: undefined,
+        };
+        const state2 = toProfileFormState(profileWithoutExclusions);
+        expect(state2.excluded_districts).toEqual(['Ate']);
       });
     });
 
@@ -361,6 +371,7 @@ describe('Task 6: Pipeline Board & Profile Form Helpers', () => {
           university: ' UNI ',
           current_cycle: ' 8vo ciclo ',
           preferred_districts: ['San Isidro', 'Surco'],
+          excluded_districts: ['Ate', 'Santa Anita'],
           modality_priority: ['Híbrido', 'Presencial', 'Remoto'],
           target_areas: ['Backend', 'Datos'],
           core_skills: 'Python, SQL',
@@ -375,6 +386,7 @@ describe('Task 6: Pipeline Board & Profile Form Helpers', () => {
         expect(updateInput.university).toBe('UNI');
         expect(updateInput.current_cycle).toBe('8vo ciclo');
         expect(updateInput.preferred_districts).toEqual(['San Isidro', 'Surco']);
+        expect(updateInput.excluded_districts).toEqual(['Ate', 'Santa Anita']);
         expect(updateInput.modality_priority).toEqual(['Híbrido', 'Presencial', 'Remoto']);
         expect(updateInput.target_areas).toEqual(['Backend', 'Datos']);
         expect(updateInput.technical_skills).toEqual({

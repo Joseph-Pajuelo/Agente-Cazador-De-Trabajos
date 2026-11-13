@@ -1,5 +1,7 @@
 import { createClient, isSupabaseConfigured } from './server';
 import { JobSummary, UserProfile, CrmStatus } from '../domain/types';
+import { RoleLevel, EnglishLevel } from '../domain/jobNormalization';
+import { SalaryFilterKey } from '../jobs/workspaceState';
 import { resolveBrandOrSectorFromQuery } from '../domain/companies';
 import { suggestCorrections } from '../domain/searchEngine';
 
@@ -12,6 +14,15 @@ export interface HistoricalSearchParams {
   maxAgeDays?: number | null;
   offset?: number;
   limit?: number;
+  includedDistricts?: string[];
+  excludedDistricts?: string[];
+  keepRemoteWhenDistrictFiltered?: boolean;
+  includeLimaUnspecifiedDistrict?: boolean;
+  categories?: string[];
+  roleLevels?: (Exclude<RoleLevel, 'unknown'> | RoleLevel | string)[];
+  englishOnly?: boolean;
+  englishLevels?: EnglishLevel[];
+  salaryFilter?: SalaryFilterKey;
 }
 
 export interface HistoricalSearchFilters {
@@ -24,6 +35,15 @@ export interface HistoricalSearchFilters {
   modalities: string[];
   sources: string[];
   cutoffDate: string | null;
+  includedDistricts: string[];
+  excludedDistricts: string[];
+  keepRemoteWhenDistrictFiltered: boolean;
+  includeLimaUnspecifiedDistrict: boolean;
+  categories: string[];
+  roleLevels: (Exclude<RoleLevel, 'unknown'> | RoleLevel | string)[];
+  englishOnly: boolean;
+  englishLevels: EnglishLevel[];
+  salaryFilter: SalaryFilterKey;
 }
 
 export const LIGHTWEIGHT_JOB_SELECT = `
@@ -43,7 +63,15 @@ export const LIGHTWEIGHT_JOB_SELECT = `
   resolved_brand_key,
   resolved_via_agency,
   agency_clue,
-  sector_hint
+  sector_hint,
+  district,
+  lima_zone,
+  category,
+  role_level,
+  english_required,
+  english_level,
+  salary_min,
+  salary_max
 `;
 
 export const JOB_WITH_EVALUATION_SELECT = `
@@ -98,6 +126,25 @@ export function mapRowToJobSummary(
     agency_clue: (row.agency_clue as string) ?? '',
     sector_hint: (row.sector_hint as string | null) ?? null,
 
+    // Normalized Lima metadata
+    district: (row.district as string | null) ?? null,
+    lima_zone: (row.lima_zone as string | null) ?? null,
+    category: (row.category as string | null) ?? null,
+    role_level: (row.role_level as RoleLevel | null) ?? null,
+    english_required:
+      row.english_required !== undefined && row.english_required !== null
+        ? Boolean(row.english_required)
+        : false,
+    english_level: (row.english_level as EnglishLevel | null) ?? null,
+    salary_min:
+      row.salary_min !== undefined && row.salary_min !== null
+        ? Number(row.salary_min)
+        : null,
+    salary_max:
+      row.salary_max !== undefined && row.salary_max !== null
+        ? Number(row.salary_max)
+        : null,
+
     is_pre_professional: ev?.is_pre_professional as boolean | undefined,
     is_unrealistic_or_smoke: ev?.is_unrealistic_or_smoke as boolean | undefined,
     technical_match_score:
@@ -140,6 +187,27 @@ export function buildHistoricalSearchFilters(
   const modalities = Array.isArray(params.modalities) ? params.modalities : [];
   const sources = Array.isArray(params.sources) ? params.sources : [];
 
+  const includedDistricts = Array.isArray(params.includedDistricts)
+    ? params.includedDistricts
+    : [];
+  const excludedDistricts = Array.isArray(params.excludedDistricts)
+    ? params.excludedDistricts
+    : [];
+  const keepRemoteWhenDistrictFiltered =
+    params.keepRemoteWhenDistrictFiltered !== undefined
+      ? Boolean(params.keepRemoteWhenDistrictFiltered)
+      : true;
+  const includeLimaUnspecifiedDistrict = Boolean(
+    params.includeLimaUnspecifiedDistrict
+  );
+  const categories = Array.isArray(params.categories) ? params.categories : [];
+  const roleLevels = Array.isArray(params.roleLevels) ? params.roleLevels : [];
+  const englishOnly = Boolean(params.englishOnly);
+  const englishLevels = Array.isArray(params.englishLevels)
+    ? params.englishLevels
+    : [];
+  const salaryFilter: SalaryFilterKey = params.salaryFilter || 'any';
+
   const cutoffDate =
     typeof params.maxAgeDays === 'number' && params.maxAgeDays > 0
       ? new Date(Date.now() - params.maxAgeDays * 24 * 60 * 60 * 1000)
@@ -158,6 +226,15 @@ export function buildHistoricalSearchFilters(
       modalities,
       sources,
       cutoffDate,
+      includedDistricts,
+      excludedDistricts,
+      keepRemoteWhenDistrictFiltered,
+      includeLimaUnspecifiedDistrict,
+      categories,
+      roleLevels,
+      englishOnly,
+      englishLevels,
+      salaryFilter,
     };
   }
 
@@ -187,6 +264,15 @@ export function buildHistoricalSearchFilters(
     modalities,
     sources,
     cutoffDate,
+    includedDistricts,
+    excludedDistricts,
+    keepRemoteWhenDistrictFiltered,
+    includeLimaUnspecifiedDistrict,
+    categories,
+    roleLevels,
+    englishOnly,
+    englishLevels,
+    salaryFilter,
   };
 }
 
@@ -198,6 +284,7 @@ export interface AuthUserInfo {
 export async function getInitialRadarData(): Promise<{
   jobs: JobSummary[];
   user: AuthUserInfo | null;
+  profileExcludedDistricts: string[];
   lastUpdated: string | null;
   isConfigured: boolean;
 }> {
@@ -205,6 +292,7 @@ export async function getInitialRadarData(): Promise<{
     return {
       jobs: [],
       user: null,
+      profileExcludedDistricts: ['Ate'],
       lastUpdated: null,
       isConfigured: false,
     };
@@ -226,6 +314,19 @@ export async function getInitialRadarData(): Promise<{
       authUser = null;
     }
 
+    let profileExcludedDistricts: string[] = ['Ate'];
+    if (authUser) {
+      const { data: userProfile } = await supabase
+        .from('profiles')
+        .select('excluded_districts')
+        .eq('id', authUser.id)
+        .maybeSingle();
+
+      if (userProfile?.excluded_districts && Array.isArray(userProfile.excluded_districts)) {
+        profileExcludedDistricts = userProfile.excluded_districts;
+      }
+    }
+
     // 2. Fetch recent evaluated jobs (<= 45d, limit 600)
     const cutoff45d = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000)
       .toISOString()
@@ -243,6 +344,7 @@ export async function getInitialRadarData(): Promise<{
       return {
         jobs: [],
         user: authUser,
+        profileExcludedDistricts,
         lastUpdated: null,
         isConfigured: true,
       };
@@ -304,6 +406,7 @@ export async function getInitialRadarData(): Promise<{
     return {
       jobs,
       user: authUser,
+      profileExcludedDistricts,
       lastUpdated: maxTimestamp,
       isConfigured: true,
     };
@@ -312,6 +415,7 @@ export async function getInitialRadarData(): Promise<{
     return {
       jobs: [],
       user: null,
+      profileExcludedDistricts: ['Ate'],
       lastUpdated: null,
       isConfigured: false,
     };
@@ -409,7 +513,13 @@ export async function getUserProfile(): Promise<UserProfile | null> {
       return null;
     }
 
-    return data as UserProfile;
+    const profile = data as UserProfile;
+    return {
+      ...profile,
+      excluded_districts: Array.isArray(profile.excluded_districts)
+        ? profile.excluded_districts
+        : ['Ate'],
+    };
   } catch (err) {
     console.error('getUserProfile error:', err);
     return null;
