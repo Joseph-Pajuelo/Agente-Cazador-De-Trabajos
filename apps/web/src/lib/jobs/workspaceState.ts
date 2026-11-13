@@ -1,11 +1,8 @@
 import { JobSummary, CrmStatus } from '../domain/types';
 import { isJobRecent, parseJobDate, sortByModalityThenScore } from '../domain/ranking';
 import { searchJobs } from '../domain/searchEngine';
-import {
-  normalizeJobMetadata,
-  RoleLevel,
-  EnglishLevel,
-} from '../domain/jobNormalization';
+import * as jobNormalization from '../domain/jobNormalization';
+import type { RoleLevel, EnglishLevel } from '../domain/jobNormalization';
 
 export type WorkspaceCrmTab =
   | 'activas'
@@ -217,8 +214,8 @@ export function rollbackJobTransition(
 }
 
 /**
- * Resolves normalized metadata for a JobSummary, falling back to deterministic extraction
- * when fields are not pre-populated.
+ * Resolves normalized metadata for a JobSummary, using pre-populated DB fields directly
+ * and falling back lazily to deterministic extraction only when fields are missing.
  */
 export function resolveJobNormalizedMeta(job: JobSummary): {
   district: string;
@@ -230,21 +227,68 @@ export function resolveJobNormalizedMeta(job: JobSummary): {
   salary_min: number | null;
   salary_max: number | null;
 } {
-  const norm = normalizeJobMetadata({
+  // Fast path: if all normalized fields already exist on job, return immediately without regex parsing
+  if (
+    job.district !== undefined &&
+    job.district !== null &&
+    job.lima_zone !== undefined &&
+    job.lima_zone !== null &&
+    job.category !== undefined &&
+    job.category !== null &&
+    job.role_level !== undefined &&
+    job.role_level !== null &&
+    job.english_required !== undefined &&
+    job.english_required !== null &&
+    job.english_level !== undefined &&
+    job.salary_min !== undefined &&
+    job.salary_max !== undefined
+  ) {
+    return {
+      district: job.district,
+      lima_zone: job.lima_zone,
+      category: job.category,
+      role_level: job.role_level,
+      english_required: Boolean(job.english_required),
+      english_level: job.english_level,
+      salary_min: job.salary_min,
+      salary_max: job.salary_max,
+    };
+  }
+
+  // Fallback: lazily normalize metadata from listing content
+  const rawDesc =
+    'raw_description' in job &&
+    typeof (job as { raw_description?: unknown }).raw_description === 'string'
+      ? (job as { raw_description?: string }).raw_description ?? null
+      : null;
+
+  const norm = jobNormalization.normalizeJobMetadata({
     title: job.title,
     location: job.location,
     modality: job.modality,
     salary: job.salary,
-    raw_description: (job as any).raw_description ?? null,
+    raw_description: rawDesc,
   });
 
   return {
-    district: job.district ?? norm.district,
-    lima_zone: job.lima_zone ?? norm.lima_zone,
-    category: job.category ?? norm.category,
-    role_level: job.role_level ?? norm.role_level,
+    district:
+      job.district !== undefined && job.district !== null ? job.district : norm.district,
+    lima_zone:
+      job.lima_zone !== undefined && job.lima_zone !== null
+        ? job.lima_zone
+        : norm.lima_zone,
+    category:
+      job.category !== undefined && job.category !== null
+        ? job.category
+        : norm.category,
+    role_level:
+      job.role_level !== undefined && job.role_level !== null
+        ? job.role_level
+        : norm.role_level,
     english_required:
-      job.english_required !== undefined ? job.english_required : norm.english_required,
+      job.english_required !== undefined && job.english_required !== null
+        ? Boolean(job.english_required)
+        : norm.english_required,
     english_level:
       job.english_level !== undefined ? job.english_level : norm.english_level,
     salary_min: job.salary_min !== undefined ? job.salary_min : norm.salary_min,
@@ -273,15 +317,22 @@ export function isJobEligibleForRoleLevels(
     return true;
   }
 
+  const rawDesc =
+    'raw_description' in job &&
+    typeof (job as { raw_description?: unknown }).raw_description === 'string'
+      ? (job as { raw_description?: string }).raw_description ?? null
+      : null;
+
   const resolvedLevel: RoleLevel =
-    job.role_level ??
-    normalizeJobMetadata({
-      title: job.title,
-      location: job.location,
-      modality: job.modality,
-      salary: job.salary,
-      raw_description: (job as any).raw_description ?? null,
-    }).role_level;
+    job.role_level !== undefined && job.role_level !== null
+      ? job.role_level
+      : jobNormalization.normalizeJobMetadata({
+          title: job.title,
+          location: job.location,
+          modality: job.modality,
+          salary: job.salary,
+          raw_description: rawDesc,
+        }).role_level;
 
   // If roleLevels is empty (user unchecked all boxes): allow all non-smoke levels
   if (roleLevels.length === 0) {

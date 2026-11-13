@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { JobSummary } from '../src/lib/domain/types';
+import * as jobNormalization from '../src/lib/domain/jobNormalization';
 import {
   WorkspaceFilters,
   DEFAULT_WORKSPACE_FILTERS,
@@ -10,6 +11,7 @@ import {
   rollbackJobTransition,
   filterAndSortWorkspaceJobs,
   isJobEligibleForRoleLevels,
+  resolveJobNormalizedMeta,
   computeDistrictFacetCounts,
   computeCategoryFacetCounts,
 } from '../src/lib/jobs/workspaceState';
@@ -1005,6 +1007,109 @@ describe('Workspace State & Pure Reducer Helpers', () => {
       expect(counts['Sistemas & TI']).toBe(1);
       expect(counts['Datos, BI & IA']).toBe(1);
       expect(counts['Administración, Banca & Finanzas']).toBe(1);
+    });
+  });
+
+  describe('13. resolveJobNormalizedMeta fast-path & lazy fallback', () => {
+    it('uses pre-populated DB fields directly without calling normalizeJobMetadata', () => {
+      const spy = vi.spyOn(jobNormalization, 'normalizeJobMetadata');
+      const populatedJob: JobSummary = {
+        id: 999,
+        deduplication_hash: 'pop-999',
+        source: 'computrabajo',
+        title: 'Practicante de Sistemas',
+        company: 'Empresa',
+        location: 'San Isidro, Lima',
+        modality: 'Presencial',
+        url: 'https://ejemplo.pe/999',
+        salary: 'S/. 1,500',
+        published_at: null,
+        published_date: '2026-11-12',
+        resolved_brand_key: null,
+        resolved_via_agency: false,
+        agency_clue: '',
+        sector_hint: null,
+        district: 'San Isidro',
+        lima_zone: 'Lima Moderna',
+        category: 'Sistemas & TI',
+        role_level: 'preprofesional',
+        english_required: true,
+        english_level: 'intermedio',
+        salary_min: 1500,
+        salary_max: 1500,
+      };
+
+      const meta = resolveJobNormalizedMeta(populatedJob);
+      expect(meta.district).toBe('San Isidro');
+      expect(meta.lima_zone).toBe('Lima Moderna');
+      expect(meta.category).toBe('Sistemas & TI');
+      expect(meta.role_level).toBe('preprofesional');
+      expect(meta.english_required).toBe(true);
+      expect(meta.english_level).toBe('intermedio');
+      expect(meta.salary_min).toBe(1500);
+      expect(meta.salary_max).toBe(1500);
+
+      expect(spy).not.toHaveBeenCalled();
+      spy.mockRestore();
+    });
+
+    it('falls back to normalizeJobMetadata lazily when normalized fields are missing', () => {
+      const spy = vi.spyOn(jobNormalization, 'normalizeJobMetadata');
+      const unpopulatedJob: JobSummary = {
+        id: 1000,
+        deduplication_hash: 'unpop-1000',
+        source: 'computrabajo',
+        title: 'Practicante Pre Profesional de Base de Datos',
+        company: 'Empresa',
+        location: 'Miraflores, Lima',
+        modality: 'Híbrido',
+        url: 'https://ejemplo.pe/1000',
+        salary: 'S/. 1,800',
+        published_at: null,
+        published_date: '2026-11-12',
+        resolved_brand_key: null,
+        resolved_via_agency: false,
+        agency_clue: '',
+        sector_hint: null,
+      };
+
+      const meta = resolveJobNormalizedMeta(unpopulatedJob);
+      expect(meta.district).toBe('Miraflores');
+      expect(meta.lima_zone).toBe('Lima Moderna');
+      expect(meta.role_level).toBe('preprofesional');
+      expect(meta.salary_min).toBe(1800);
+      expect(meta.salary_max).toBe(1800);
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      spy.mockRestore();
+    });
+
+    it('isJobEligibleForRoleLevels uses pre-populated role_level directly without calling normalizeJobMetadata', () => {
+      const spy = vi.spyOn(jobNormalization, 'normalizeJobMetadata');
+      const populatedJob: JobSummary = {
+        id: 1001,
+        deduplication_hash: 'pop-1001',
+        source: 'computrabajo',
+        title: 'Analista Semi Senior',
+        company: 'Empresa',
+        location: 'San Isidro',
+        modality: 'Presencial',
+        url: 'https://ejemplo.pe/1001',
+        salary: null,
+        published_at: null,
+        published_date: '2026-11-12',
+        resolved_brand_key: null,
+        resolved_via_agency: false,
+        agency_clue: '',
+        sector_hint: null,
+        role_level: 'profesional',
+        is_unrealistic_or_smoke: false,
+      };
+
+      const eligible = isJobEligibleForRoleLevels(populatedJob, ['profesional'], false);
+      expect(eligible).toBe(true);
+      expect(spy).not.toHaveBeenCalled();
+      spy.mockRestore();
     });
   });
 });
