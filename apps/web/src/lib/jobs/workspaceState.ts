@@ -1,6 +1,11 @@
 import { JobSummary, CrmStatus } from '../domain/types';
 import { isJobRecent, parseJobDate, sortByModalityThenScore } from '../domain/ranking';
 import { searchJobs } from '../domain/searchEngine';
+import {
+  normalizeJobMetadata,
+  RoleLevel,
+  EnglishLevel,
+} from '../domain/jobNormalization';
 
 export type WorkspaceCrmTab =
   | 'activas'
@@ -16,6 +21,13 @@ export type WorkspaceSortBy =
   | 'score'
   | 'recent';
 
+export type SalaryFilterKey =
+  | 'any'
+  | 'has_salary'
+  | 'gte_1130'
+  | 'gte_1500'
+  | 'gte_2000';
+
 export interface WorkspaceFilters {
   search: string;
   crmTab: WorkspaceCrmTab;
@@ -25,6 +37,24 @@ export interface WorkspaceFilters {
   maxAgeDays: number | null; // null represents "Cualquier fecha (Histórico DB)"
   sortBy: WorkspaceSortBy;
   includeDiscardedAi: boolean;
+
+  // Lima location filters
+  includedDistricts: string[];
+  excludedDistricts: string[];
+  keepRemoteWhenDistrictFiltered: boolean;
+  includeLimaUnspecifiedDistrict: boolean;
+
+  // Language & Role filters
+  englishOnly: boolean;
+  englishLevels: EnglishLevel[];
+  categories: string[];
+  roleLevels: Exclude<RoleLevel, 'unknown'>[];
+
+  // Compensation filter
+  salaryFilter: SalaryFilterKey;
+
+  // Selected job for master-detail view
+  selectedJobId?: number | string | null;
 }
 
 export const DEFAULT_WORKSPACE_FILTERS: WorkspaceFilters = {
@@ -36,6 +66,16 @@ export const DEFAULT_WORKSPACE_FILTERS: WorkspaceFilters = {
   maxAgeDays: 14,
   sortBy: 'modality_score',
   includeDiscardedAi: false,
+  includedDistricts: [],
+  excludedDistricts: ['Ate'],
+  keepRemoteWhenDistrictFiltered: true,
+  includeLimaUnspecifiedDistrict: false,
+  englishOnly: false,
+  englishLevels: [],
+  categories: [],
+  roleLevels: ['preprofesional'],
+  salaryFilter: 'any',
+  selectedJobId: null,
 };
 
 export interface CrmCounts {
@@ -177,24 +217,138 @@ export function rollbackJobTransition(
 }
 
 /**
+ * Resolves normalized metadata for a JobSummary, falling back to deterministic extraction
+ * when fields are not pre-populated.
+ */
+export function resolveJobNormalizedMeta(job: JobSummary): {
+  district: string;
+  lima_zone: string;
+  category: string;
+  role_level: RoleLevel;
+  english_required: boolean;
+  english_level: EnglishLevel | null;
+  salary_min: number | null;
+  salary_max: number | null;
+} {
+  const norm = normalizeJobMetadata({
+    title: job.title,
+    location: job.location,
+    modality: job.modality,
+    salary: job.salary,
+    raw_description: (job as any).raw_description ?? null,
+  });
+
+  return {
+    district: job.district ?? norm.district,
+    lima_zone: job.lima_zone ?? norm.lima_zone,
+    category: job.category ?? norm.category,
+    role_level: job.role_level ?? norm.role_level,
+    english_required:
+      job.english_required !== undefined ? job.english_required : norm.english_required,
+    english_level:
+      job.english_level !== undefined ? job.english_level : norm.english_level,
+    salary_min: job.salary_min !== undefined ? job.salary_min : norm.salary_min,
+    salary_max: job.salary_max !== undefined ? job.salary_max : norm.salary_max,
+  };
+}
+
+/**
+ * Evaluates whether a job is eligible under the active role levels filter.
+ * Decouples role level from AI discard status so junior and profesional jobs remain accessible.
+ */
+export function isJobEligibleForRoleLevels(
+  job: JobSummary,
+  roleLevels: readonly (Exclude<RoleLevel, 'unknown'> | RoleLevel | string)[],
+  includeDiscardedAi?: boolean
+): boolean {
+  const includeAi = Boolean(includeDiscardedAi);
+
+  // Always hide unrealistic / smoke jobs unless includeDiscardedAi is true
+  if (job.is_unrealistic_or_smoke === true && !includeAi) {
+    return false;
+  }
+
+  // When includeDiscardedAi is true and roleLevels is empty: show all
+  if (includeAi && roleLevels.length === 0) {
+    return true;
+  }
+
+  const resolvedLevel: RoleLevel =
+    job.role_level ??
+    normalizeJobMetadata({
+      title: job.title,
+      location: job.location,
+      modality: job.modality,
+      salary: job.salary,
+      raw_description: (job as any).raw_description ?? null,
+    }).role_level;
+
+  // If roleLevels is empty (user unchecked all boxes): allow all non-smoke levels
+  if (roleLevels.length === 0) {
+    return true;
+  }
+
+  // Check matching against selected roleLevels
+  let matches = false;
+
+  if (roleLevels.includes('preprofesional')) {
+    if (resolvedLevel === 'preprofesional') {
+      matches = true;
+    } else if (
+      resolvedLevel === 'unknown' &&
+      (job.is_pre_professional !== false || includeAi)
+    ) {
+      matches = true;
+    }
+  }
+
+  if (roleLevels.includes('profesional')) {
+    if (resolvedLevel === 'profesional') {
+      matches = true;
+    }
+  }
+
+  if (roleLevels.includes('trainee_junior')) {
+    if (resolvedLevel === 'trainee_junior') {
+      matches = true;
+    }
+  }
+
+  if (roleLevels.includes('unknown') && resolvedLevel === 'unknown') {
+    matches = true;
+  }
+
+  return matches;
+}
+
+/**
  * Pure filtering and sorting engine for the Master-Detail Explorer.
- * Integrates CRM tabs, modalities, score cutoff, date recency, and smart search.
+ * Integrates CRM tabs, Lima district include/exclude, modalities, categories, role levels,
+ * English, salary ranges, score cutoff, date recency, and smart search.
  */
 export function filterAndSortWorkspaceJobs(
   jobs: JobSummary[],
   filters: WorkspaceFilters,
   now?: Date
 ): WorkspaceFilterResult {
-  const includeAi = Boolean(filters.includeDiscardedAi);
+  const isCrmTrackedTab =
+    filters.crmTab === 'to_apply' ||
+    filters.crmTab === 'favorite' ||
+    filters.crmTab === 'applied' ||
+    filters.crmTab === 'interview' ||
+    filters.crmTab === 'discarded';
 
-  // 1. AI Discard filter
+  // 1. Role Level & AI Discard filtering
   let pool = jobs.filter((job) => {
-    if (includeAi) return true;
-    if (job.user_status) return true;
-    if (job.is_pre_professional === false || job.is_unrealistic_or_smoke === true) {
-      return false;
+    // If job is inside its explicit user CRM tab, do not drop on role level / smoke
+    if (isCrmTrackedTab && job.user_status === filters.crmTab) {
+      return true;
     }
-    return true;
+    return isJobEligibleForRoleLevels(
+      job,
+      filters.roleLevels ?? [],
+      filters.includeDiscardedAi
+    );
   });
 
   // 2. Antiquity / Recency filter (only if not "Cualquier fecha")
@@ -241,9 +395,91 @@ export function filterAndSortWorkspaceJobs(
   } else if (filters.crmTab === 'discarded') {
     pool = pool.filter((job) => job.user_status === 'discarded');
   }
-  // 'todas' retains all remaining items
+  // 'todas' retains all items
 
-  // 7. Smart search
+  // 7. District Inclusion and Exclusion
+  // excludedDistricts ALWAYS take precedence at the end EXCEPT for jobs already tracked in user's CRM tab
+  pool = pool.filter((job) => {
+    if (isCrmTrackedTab && job.user_status === filters.crmTab) {
+      return true;
+    }
+
+    const meta = resolveJobNormalizedMeta(job);
+    const district = meta.district;
+
+    // Inclusion check
+    if (filters.includedDistricts && filters.includedDistricts.length > 0) {
+      const matchesDistrict = filters.includedDistricts.includes(district);
+      const matchesRemote =
+        filters.keepRemoteWhenDistrictFiltered &&
+        (district === 'Remoto' || job.modality === 'Remoto');
+      const matchesLimaUnspecified =
+        filters.includeLimaUnspecifiedDistrict && district === 'Lima Metropolitana';
+
+      if (!matchesDistrict && !matchesRemote && !matchesLimaUnspecified) {
+        return false;
+      }
+    }
+
+    // Exclusion check (precedence over inclusion)
+    if (filters.excludedDistricts && filters.excludedDistricts.length > 0) {
+      if (filters.excludedDistricts.includes(district)) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+
+  // 8. English filter
+  if (filters.englishOnly || (filters.englishLevels && filters.englishLevels.length > 0)) {
+    pool = pool.filter((job) => {
+      const meta = resolveJobNormalizedMeta(job);
+      if (filters.englishOnly && !meta.english_required) {
+        return false;
+      }
+      if (filters.englishLevels && filters.englishLevels.length > 0) {
+        if (!meta.english_level || !filters.englishLevels.includes(meta.english_level)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }
+
+  // 9. Category filter
+  if (filters.categories && filters.categories.length > 0) {
+    const catSet = new Set(filters.categories);
+    pool = pool.filter((job) => {
+      const meta = resolveJobNormalizedMeta(job);
+      return Boolean(meta.category && catSet.has(meta.category));
+    });
+  }
+
+  // 10. Salary filter
+  if (filters.salaryFilter && filters.salaryFilter !== 'any') {
+    pool = pool.filter((job) => {
+      const meta = resolveJobNormalizedMeta(job);
+      const effectiveSalary = Math.max(meta.salary_min ?? 0, meta.salary_max ?? 0);
+      const hasSalary = meta.salary_min !== null || meta.salary_max !== null;
+
+      if (filters.salaryFilter === 'has_salary') {
+        return hasSalary;
+      }
+      if (filters.salaryFilter === 'gte_1130') {
+        return hasSalary && effectiveSalary >= 1130;
+      }
+      if (filters.salaryFilter === 'gte_1500') {
+        return hasSalary && effectiveSalary >= 1500;
+      }
+      if (filters.salaryFilter === 'gte_2000') {
+        return hasSalary && effectiveSalary >= 2000;
+      }
+      return true;
+    });
+  }
+
+  // 11. Smart search
   let didYouMean: string[] = [];
   let correctedQuery: string | null = null;
   let agencyMatchesCount = 0;
@@ -256,7 +492,7 @@ export function filterAndSortWorkspaceJobs(
     agencyMatchesCount = searchOutcome.agency_matches_count || 0;
   }
 
-  // 8. Sorting
+  // 12. Sorting
   if (filters.sortBy === 'modality_score') {
     pool = sortByModalityThenScore(pool);
   } else if (filters.sortBy === 'score') {
@@ -281,4 +517,61 @@ export function filterAndSortWorkspaceJobs(
     correctedQuery,
     agencyMatchesCount,
   };
+}
+
+/**
+ * Computes live counts per Lima district across the active filtered pool
+ * BEFORE applying district inclusion/exclusion filters.
+ */
+export function computeDistrictFacetCounts(
+  jobs: JobSummary[],
+  filters: WorkspaceFilters,
+  now?: Date
+): Record<string, number> {
+  const facetFilters: WorkspaceFilters = {
+    ...filters,
+    includedDistricts: [],
+    excludedDistricts: [],
+  };
+
+  const result = filterAndSortWorkspaceJobs(jobs, facetFilters, now);
+  const counts: Record<string, number> = {};
+
+  for (const job of result.jobs) {
+    const meta = resolveJobNormalizedMeta(job);
+    const d = meta.district;
+    if (d) {
+      counts[d] = (counts[d] || 0) + 1;
+    }
+  }
+
+  return counts;
+}
+
+/**
+ * Computes live counts per Category across the active filtered pool
+ * BEFORE applying category filter.
+ */
+export function computeCategoryFacetCounts(
+  jobs: JobSummary[],
+  filters: WorkspaceFilters,
+  now?: Date
+): Record<string, number> {
+  const facetFilters: WorkspaceFilters = {
+    ...filters,
+    categories: [],
+  };
+
+  const result = filterAndSortWorkspaceJobs(jobs, facetFilters, now);
+  const counts: Record<string, number> = {};
+
+  for (const job of result.jobs) {
+    const meta = resolveJobNormalizedMeta(job);
+    const c = meta.category;
+    if (c) {
+      counts[c] = (counts[c] || 0) + 1;
+    }
+  }
+
+  return counts;
 }

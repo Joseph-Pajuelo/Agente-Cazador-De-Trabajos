@@ -9,6 +9,9 @@ import {
   applyOptimisticCrmTransition,
   rollbackJobTransition,
   filterAndSortWorkspaceJobs,
+  isJobEligibleForRoleLevels,
+  computeDistrictFacetCounts,
+  computeCategoryFacetCounts,
 } from '../src/lib/jobs/workspaceState';
 import { sanitizeNextPath } from '../src/lib/auth/safeRedirect';
 
@@ -495,4 +498,514 @@ describe('Workspace State & Pure Reducer Helpers', () => {
       expect(sanitizeNextPath(null, '/login')).toBe('/login');
     });
   });
+
+  describe('8. DEFAULT_WORKSPACE_FILTERS Invariants', () => {
+    it('sets expected initial values for phase 1 filter redesign', () => {
+      expect(DEFAULT_WORKSPACE_FILTERS.excludedDistricts).toEqual(['Ate']);
+      expect(DEFAULT_WORKSPACE_FILTERS.includedDistricts).toEqual([]);
+      expect(DEFAULT_WORKSPACE_FILTERS.keepRemoteWhenDistrictFiltered).toBe(true);
+      expect(DEFAULT_WORKSPACE_FILTERS.includeLimaUnspecifiedDistrict).toBe(false);
+      expect(DEFAULT_WORKSPACE_FILTERS.roleLevels).toEqual(['preprofesional']);
+      expect(DEFAULT_WORKSPACE_FILTERS.salaryFilter).toBe('any');
+      expect(DEFAULT_WORKSPACE_FILTERS.englishOnly).toBe(false);
+      expect(DEFAULT_WORKSPACE_FILTERS.englishLevels).toEqual([]);
+      expect(DEFAULT_WORKSPACE_FILTERS.categories).toEqual([]);
+      expect(DEFAULT_WORKSPACE_FILTERS.selectedJobId).toBeNull();
+    });
+  });
+
+  describe('9. District Inclusion, Exclusion & CRM Tab Precedence', () => {
+    const districtTestJobs: JobSummary[] = [
+      {
+        id: 101,
+        deduplication_hash: 'd-101',
+        source: 'computrabajo',
+        title: 'Practicante de Sistemas',
+        company: 'Fábrica Ate',
+        location: 'Ate, Lima',
+        modality: 'Presencial',
+        url: 'https://ejemplo.pe/ate-101',
+        salary: 'S/. 1,200',
+        published_at: null,
+        published_date: '2026-11-12',
+        resolved_brand_key: null,
+        resolved_via_agency: false,
+        agency_clue: '',
+        sector_hint: null,
+        is_pre_professional: true,
+        user_status: null,
+      },
+      {
+        id: 102,
+        deduplication_hash: 'd-102',
+        source: 'computrabajo',
+        title: 'Practicante de TI Guardado en Ate',
+        company: 'Empresa Ate Guardada',
+        location: 'Ate, Lima',
+        modality: 'Presencial',
+        url: 'https://ejemplo.pe/ate-102',
+        salary: 'S/. 1,300',
+        published_at: null,
+        published_date: '2026-11-12',
+        resolved_brand_key: null,
+        resolved_via_agency: false,
+        agency_clue: '',
+        sector_hint: null,
+        is_pre_professional: true,
+        user_status: 'to_apply',
+      },
+      {
+        id: 103,
+        deduplication_hash: 'd-103',
+        source: 'computrabajo',
+        title: 'Practicante de Datos San Isidro',
+        company: 'Corporativo San Isidro',
+        location: 'San Isidro, Lima',
+        modality: 'Presencial',
+        url: 'https://ejemplo.pe/si-103',
+        salary: 'S/. 1,500',
+        published_at: null,
+        published_date: '2026-11-12',
+        resolved_brand_key: null,
+        resolved_via_agency: false,
+        agency_clue: '',
+        sector_hint: null,
+        is_pre_professional: true,
+        user_status: null,
+      },
+      {
+        id: 104,
+        deduplication_hash: 'd-104',
+        source: 'computrabajo',
+        title: 'Practicante Remoto 100%',
+        company: 'Tech Remoto SAC',
+        location: 'Remoto',
+        modality: 'Remoto',
+        url: 'https://ejemplo.pe/rem-104',
+        salary: 'S/. 1,400',
+        published_at: null,
+        published_date: '2026-11-12',
+        resolved_brand_key: null,
+        resolved_via_agency: false,
+        agency_clue: '',
+        sector_hint: null,
+        is_pre_professional: true,
+        user_status: null,
+      },
+      {
+        id: 105,
+        deduplication_hash: 'd-105',
+        source: 'computrabajo',
+        title: 'Practicante Lima Metropolitana Sin Distrito',
+        company: 'Empresa Lima General',
+        location: 'Lima, Perú',
+        modality: 'Presencial',
+        url: 'https://ejemplo.pe/lima-105',
+        salary: 'S/. 1,130',
+        published_at: null,
+        published_date: '2026-11-12',
+        resolved_brand_key: null,
+        resolved_via_agency: false,
+        agency_clue: '',
+        sector_hint: null,
+        is_pre_professional: true,
+        user_status: null,
+      },
+    ];
+
+    it('excludes Ate jobs by default in activas and todas tabs', () => {
+      const filters: WorkspaceFilters = {
+        ...DEFAULT_WORKSPACE_FILTERS,
+        crmTab: 'todas',
+      };
+      const result = filterAndSortWorkspaceJobs(districtTestJobs, filters, fixedNow);
+      const ids = result.jobs.map((j) => j.id);
+
+      expect(ids).not.toContain(101); // untracked Ate job excluded
+      expect(ids).not.toContain(102); // tracked Ate job excluded from generic todas tab
+      expect(ids).toContain(103); // San Isidro
+      expect(ids).toContain(104); // Remoto
+      expect(ids).toContain(105); // Lima Metropolitana
+    });
+
+    it('preserves Ate jobs when viewed inside their explicit CRM tab (e.g. to_apply)', () => {
+      const filters: WorkspaceFilters = {
+        ...DEFAULT_WORKSPACE_FILTERS,
+        crmTab: 'to_apply',
+      };
+      const result = filterAndSortWorkspaceJobs(districtTestJobs, filters, fixedNow);
+      const ids = result.jobs.map((j) => j.id);
+
+      expect(ids).toContain(102); // Tracked Ate job stays visible in to_apply tab!
+    });
+
+    it('keeps Remoto when keepRemoteWhenDistrictFiltered is true, drops Remoto when false', () => {
+      const withRemote: WorkspaceFilters = {
+        ...DEFAULT_WORKSPACE_FILTERS,
+        crmTab: 'todas',
+        includedDistricts: ['San Isidro'],
+        keepRemoteWhenDistrictFiltered: true,
+      };
+      const resWithRemote = filterAndSortWorkspaceJobs(districtTestJobs, withRemote, fixedNow);
+      const idsWithRemote = resWithRemote.jobs.map((j) => j.id);
+      expect(idsWithRemote).toContain(103); // San Isidro
+      expect(idsWithRemote).toContain(104); // Remoto kept!
+
+      const withoutRemote: WorkspaceFilters = {
+        ...DEFAULT_WORKSPACE_FILTERS,
+        crmTab: 'todas',
+        includedDistricts: ['San Isidro'],
+        keepRemoteWhenDistrictFiltered: false,
+      };
+      const resWithoutRemote = filterAndSortWorkspaceJobs(districtTestJobs, withoutRemote, fixedNow);
+      const idsWithoutRemote = resWithoutRemote.jobs.map((j) => j.id);
+      expect(idsWithoutRemote).toContain(103); // San Isidro
+      expect(idsWithoutRemote).not.toContain(104); // Remoto dropped!
+    });
+
+    it('drops Lima Metropolitana unless includeLimaUnspecifiedDistrict is true', () => {
+      const withoutLimaUnspecified: WorkspaceFilters = {
+        ...DEFAULT_WORKSPACE_FILTERS,
+        crmTab: 'todas',
+        includedDistricts: ['San Isidro'],
+        keepRemoteWhenDistrictFiltered: false,
+        includeLimaUnspecifiedDistrict: false,
+      };
+      const res1 = filterAndSortWorkspaceJobs(districtTestJobs, withoutLimaUnspecified, fixedNow);
+      expect(res1.jobs.map((j) => j.id)).not.toContain(105);
+
+      const withLimaUnspecified: WorkspaceFilters = {
+        ...DEFAULT_WORKSPACE_FILTERS,
+        crmTab: 'todas',
+        includedDistricts: ['San Isidro'],
+        keepRemoteWhenDistrictFiltered: false,
+        includeLimaUnspecifiedDistrict: true,
+      };
+      const res2 = filterAndSortWorkspaceJobs(districtTestJobs, withLimaUnspecified, fixedNow);
+      expect(res2.jobs.map((j) => j.id)).toContain(105);
+    });
+
+    it('gives exclusion precedence over inclusion if a district is in both', () => {
+      const conflictFilters: WorkspaceFilters = {
+        ...DEFAULT_WORKSPACE_FILTERS,
+        crmTab: 'todas',
+        includedDistricts: ['San Isidro'],
+        excludedDistricts: ['San Isidro'],
+      };
+      const result = filterAndSortWorkspaceJobs(districtTestJobs, conflictFilters, fixedNow);
+      expect(result.jobs.map((j) => j.id)).not.toContain(103);
+    });
+  });
+
+  describe('10. isJobEligibleForRoleLevels & Role Decoupling', () => {
+    const juniorJob: JobSummary = {
+      id: 201,
+      deduplication_hash: 'r-201',
+      source: 'linkedin',
+      title: 'Trainee de Desarrollo Frontend',
+      company: 'Tech Start',
+      location: 'Miraflores, Lima',
+      modality: 'Híbrido',
+      url: 'https://ejemplo.pe/tj-201',
+      salary: null,
+      published_at: null,
+      published_date: '2026-11-12',
+      resolved_brand_key: null,
+      resolved_via_agency: false,
+      agency_clue: '',
+      sector_hint: null,
+      is_pre_professional: false,
+      is_unrealistic_or_smoke: false,
+    };
+
+    const profesionalJob: JobSummary = {
+      id: 202,
+      deduplication_hash: 'r-202',
+      source: 'linkedin',
+      title: 'Analista de Sistemas Semi Senior',
+      company: 'Corp TI',
+      location: 'San Isidro, Lima',
+      modality: 'Presencial',
+      url: 'https://ejemplo.pe/prof-202',
+      salary: 'S/. 3,500',
+      published_at: null,
+      published_date: '2026-11-12',
+      resolved_brand_key: null,
+      resolved_via_agency: false,
+      agency_clue: '',
+      sector_hint: null,
+      is_pre_professional: false,
+      is_unrealistic_or_smoke: false,
+    };
+
+    const smokeJob: JobSummary = {
+      id: 203,
+      deduplication_hash: 'r-203',
+      source: 'linkedin',
+      title: 'Practicante con 10 años experiencia en Rust',
+      company: 'Fake Corp',
+      location: 'San Isidro, Lima',
+      modality: 'Presencial',
+      url: 'https://ejemplo.pe/smoke-203',
+      salary: 'S/. 1,000',
+      published_at: null,
+      published_date: '2026-11-12',
+      resolved_brand_key: null,
+      resolved_via_agency: false,
+      agency_clue: '',
+      sector_hint: null,
+      is_pre_professional: true,
+      is_unrealistic_or_smoke: true,
+    };
+
+    const unknownJobNotPre: JobSummary = {
+      id: 204,
+      deduplication_hash: 'r-204',
+      source: 'linkedin',
+      title: 'Colaborador General Operaciones',
+      company: 'Empresa X',
+      location: 'San Isidro, Lima',
+      modality: 'Presencial',
+      url: 'https://ejemplo.pe/unk-204',
+      salary: null,
+      published_at: null,
+      published_date: '2026-11-12',
+      resolved_brand_key: null,
+      resolved_via_agency: false,
+      agency_clue: '',
+      sector_hint: null,
+      role_level: 'unknown',
+      is_pre_professional: false,
+      is_unrealistic_or_smoke: false,
+    };
+
+    it('returns trainee_junior job when selected without requiring includeDiscardedAi', () => {
+      expect(isJobEligibleForRoleLevels(juniorJob, ['trainee_junior'], false)).toBe(true);
+      expect(isJobEligibleForRoleLevels(juniorJob, ['preprofesional'], false)).toBe(false);
+    });
+
+    it('returns profesional job when selected without requiring includeDiscardedAi', () => {
+      expect(isJobEligibleForRoleLevels(profesionalJob, ['profesional'], false)).toBe(true);
+      expect(isJobEligibleForRoleLevels(profesionalJob, ['preprofesional'], false)).toBe(false);
+    });
+
+    it('always hides smoke jobs unless includeDiscardedAi is true', () => {
+      expect(isJobEligibleForRoleLevels(smokeJob, ['preprofesional'], false)).toBe(false);
+      expect(isJobEligibleForRoleLevels(smokeJob, ['preprofesional'], true)).toBe(true);
+      expect(isJobEligibleForRoleLevels(smokeJob, [], false)).toBe(false);
+      expect(isJobEligibleForRoleLevels(smokeJob, [], true)).toBe(true);
+    });
+
+    it('handles unknown role level depending on is_pre_professional and includeDiscardedAi', () => {
+      expect(isJobEligibleForRoleLevels(unknownJobNotPre, ['preprofesional'], false)).toBe(false);
+      expect(isJobEligibleForRoleLevels(unknownJobNotPre, ['preprofesional'], true)).toBe(true);
+    });
+
+    it('allows all non-smoke levels when roleLevels is empty', () => {
+      expect(isJobEligibleForRoleLevels(juniorJob, [], false)).toBe(true);
+      expect(isJobEligibleForRoleLevels(profesionalJob, [], false)).toBe(true);
+      expect(isJobEligibleForRoleLevels(smokeJob, [], false)).toBe(false);
+    });
+  });
+
+  describe('11. Salary and English Filtering', () => {
+    const salaryEnglishJobs: JobSummary[] = [
+      {
+        id: 301,
+        deduplication_hash: 'se-301',
+        source: 'computrabajo',
+        title: 'Practicante Pre Profesional Bilingüe',
+        company: 'Multinacional',
+        location: 'San Isidro, Lima',
+        modality: 'Híbrido',
+        url: 'https://ejemplo.pe/se-301',
+        salary: 'S/. 2,200',
+        published_at: null,
+        published_date: '2026-11-12',
+        resolved_brand_key: null,
+        resolved_via_agency: false,
+        agency_clue: '',
+        sector_hint: null,
+        english_required: true,
+        english_level: 'avanzado',
+        salary_min: 2200,
+        salary_max: 2200,
+      },
+      {
+        id: 302,
+        deduplication_hash: 'se-302',
+        source: 'computrabajo',
+        title: 'Practicante Pre Profesional de Finanzas',
+        company: 'Banco Local',
+        location: 'Miraflores, Lima',
+        modality: 'Presencial',
+        url: 'https://ejemplo.pe/se-302',
+        salary: 'S/. 1,300',
+        published_at: null,
+        published_date: '2026-11-12',
+        resolved_brand_key: null,
+        resolved_via_agency: false,
+        agency_clue: '',
+        sector_hint: null,
+        english_required: false,
+        english_level: null,
+        salary_min: 1300,
+        salary_max: 1300,
+      },
+      {
+        id: 303,
+        deduplication_hash: 'se-303',
+        source: 'computrabajo',
+        title: 'Practicante Pre Profesional General',
+        company: 'Empresa Sin Sueldo',
+        location: 'San Borja, Lima',
+        modality: 'Presencial',
+        url: 'https://ejemplo.pe/se-303',
+        salary: null,
+        published_at: null,
+        published_date: '2026-11-12',
+        resolved_brand_key: null,
+        resolved_via_agency: false,
+        agency_clue: '',
+        sector_hint: null,
+        english_required: false,
+        english_level: null,
+        salary_min: null,
+        salary_max: null,
+      },
+    ];
+
+    it('filters by salaryFilter: has_salary, gte_1130, gte_1500, gte_2000', () => {
+      const fHasSalary: WorkspaceFilters = {
+        ...DEFAULT_WORKSPACE_FILTERS,
+        crmTab: 'todas',
+        salaryFilter: 'has_salary',
+      };
+      const resHas = filterAndSortWorkspaceJobs(salaryEnglishJobs, fHasSalary, fixedNow);
+      expect(resHas.jobs.map((j) => j.id)).toEqual([301, 302]);
+
+      const f1500: WorkspaceFilters = {
+        ...DEFAULT_WORKSPACE_FILTERS,
+        crmTab: 'todas',
+        salaryFilter: 'gte_1500',
+      };
+      const res1500 = filterAndSortWorkspaceJobs(salaryEnglishJobs, f1500, fixedNow);
+      expect(res1500.jobs.map((j) => j.id)).toEqual([301]);
+
+      const f2000: WorkspaceFilters = {
+        ...DEFAULT_WORKSPACE_FILTERS,
+        crmTab: 'todas',
+        salaryFilter: 'gte_2000',
+      };
+      const res2000 = filterAndSortWorkspaceJobs(salaryEnglishJobs, f2000, fixedNow);
+      expect(res2000.jobs.map((j) => j.id)).toEqual([301]);
+    });
+
+    it('filters by englishOnly and englishLevels', () => {
+      const fEngOnly: WorkspaceFilters = {
+        ...DEFAULT_WORKSPACE_FILTERS,
+        crmTab: 'todas',
+        englishOnly: true,
+      };
+      const resEng = filterAndSortWorkspaceJobs(salaryEnglishJobs, fEngOnly, fixedNow);
+      expect(resEng.jobs.map((j) => j.id)).toEqual([301]);
+
+      const fEngLvl: WorkspaceFilters = {
+        ...DEFAULT_WORKSPACE_FILTERS,
+        crmTab: 'todas',
+        englishLevels: ['avanzado'],
+      };
+      const resLvl = filterAndSortWorkspaceJobs(salaryEnglishJobs, fEngLvl, fixedNow);
+      expect(resLvl.jobs.map((j) => j.id)).toEqual([301]);
+    });
+  });
+
+  describe('12. Live Facet Counts (Districts & Categories)', () => {
+    const facetJobs: JobSummary[] = [
+      {
+        id: 401,
+        deduplication_hash: 'f-401',
+        source: 'computrabajo',
+        title: 'Practicante Pre Profesional de Sistemas',
+        company: 'Tech A',
+        location: 'San Isidro, Lima',
+        modality: 'Presencial',
+        url: 'https://ejemplo.pe/f-401',
+        salary: 'S/. 1,500',
+        published_at: null,
+        published_date: '2026-11-12',
+        resolved_brand_key: null,
+        resolved_via_agency: false,
+        agency_clue: '',
+        sector_hint: null,
+        district: 'San Isidro',
+        category: 'Sistemas & TI',
+        role_level: 'preprofesional',
+      },
+      {
+        id: 402,
+        deduplication_hash: 'f-402',
+        source: 'computrabajo',
+        title: 'Practicante Pre Profesional de Datos',
+        company: 'Data B',
+        location: 'San Isidro, Lima',
+        modality: 'Presencial',
+        url: 'https://ejemplo.pe/f-402',
+        salary: 'S/. 1,500',
+        published_at: null,
+        published_date: '2026-11-12',
+        resolved_brand_key: null,
+        resolved_via_agency: false,
+        agency_clue: '',
+        sector_hint: null,
+        district: 'San Isidro',
+        category: 'Datos, BI & IA',
+        role_level: 'preprofesional',
+      },
+      {
+        id: 403,
+        deduplication_hash: 'f-403',
+        source: 'computrabajo',
+        title: 'Practicante Pre Profesional de Finanzas',
+        company: 'Banco C',
+        location: 'Miraflores, Lima',
+        modality: 'Presencial',
+        url: 'https://ejemplo.pe/f-403',
+        salary: 'S/. 1,500',
+        published_at: null,
+        published_date: '2026-11-12',
+        resolved_brand_key: null,
+        resolved_via_agency: false,
+        agency_clue: '',
+        sector_hint: null,
+        district: 'Miraflores',
+        category: 'Administración, Banca & Finanzas',
+        role_level: 'preprofesional',
+      },
+    ];
+
+    it('computes district facet counts over pool before district inclusion/exclusion', () => {
+      const filters: WorkspaceFilters = {
+        ...DEFAULT_WORKSPACE_FILTERS,
+        crmTab: 'todas',
+        includedDistricts: ['Miraflores'], // Even if filtered to Miraflores, district counts see both
+      };
+      const counts = computeDistrictFacetCounts(facetJobs, filters, fixedNow);
+      expect(counts['San Isidro']).toBe(2);
+      expect(counts['Miraflores']).toBe(1);
+    });
+
+    it('computes category facet counts over pool before category filtering', () => {
+      const filters: WorkspaceFilters = {
+        ...DEFAULT_WORKSPACE_FILTERS,
+        crmTab: 'todas',
+        categories: ['Datos, BI & IA'], // Even if filtered to Datos, BI & IA, counts see other categories
+      };
+      const counts = computeCategoryFacetCounts(facetJobs, filters, fixedNow);
+      expect(counts['Sistemas & TI']).toBe(1);
+      expect(counts['Datos, BI & IA']).toBe(1);
+      expect(counts['Administración, Banca & Finanzas']).toBe(1);
+    });
+  });
 });
+

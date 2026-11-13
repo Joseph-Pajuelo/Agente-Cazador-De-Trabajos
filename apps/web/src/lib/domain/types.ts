@@ -3,6 +3,8 @@
  * and Supabase initial schema (supabase/migrations/202611130001_initial_schema.sql).
  */
 
+import type { RoleLevel, EnglishLevel } from './jobNormalization';
+
 export type CrmStatus =
   | 'to_apply'
   | 'favorite'
@@ -69,6 +71,14 @@ export type JobSource =
   | 'linkedin'
   | 'cvmatcher'
   | (string & {});
+
+export const SOURCE_LABELS: Record<string, string> = {
+  practicas_pe: 'Prácticas Perú',
+  bumeran: 'Bumeran',
+  computrabajo: 'CompuTrabajo',
+  linkedin: 'LinkedIn',
+  cvmatcher: 'CVMatcher',
+};
 
 export type Modality =
   | 'Híbrido'
@@ -142,6 +152,16 @@ export interface JobSummary {
   applied_at?: string | null;
   user_notes?: string | null;
 
+  // Normalized Lima location, category, role, English and salary metadata
+  district?: string | null;
+  lima_zone?: string | null;
+  category?: string | null;
+  role_level?: RoleLevel | null;
+  english_required?: boolean;
+  english_level?: EnglishLevel | null;
+  salary_min?: number | null;
+  salary_max?: number | null;
+
   // Runtime search engine annotation
   _search_note?: string | null;
 }
@@ -157,6 +177,7 @@ export interface UserProfile {
   university: string;
   current_cycle: string;
   preferred_districts: string[];
+  excluded_districts?: string[];
   modality_priority: string[];
   target_areas: string[];
   technical_skills: Record<string, unknown>;
