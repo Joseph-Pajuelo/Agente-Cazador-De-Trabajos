@@ -297,6 +297,7 @@ export function ProfileForm({ initialProfile, userEmail }: ProfileFormProps) {
                   <button
                     key={district}
                     type="button"
+                    aria-pressed={isSelected}
                     onClick={() => toggleDistrict(district)}
                     className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
                       isSelected
@@ -379,6 +380,7 @@ export function ProfileForm({ initialProfile, userEmail }: ProfileFormProps) {
                   <button
                     key={area}
                     type="button"
+                    aria-pressed={isSelected}
                     onClick={() => toggleTargetArea(area)}
                     className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
                       isSelected

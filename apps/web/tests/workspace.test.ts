@@ -310,6 +310,78 @@ describe('Workspace State & Pure Reducer Helpers', () => {
       expect(result.jobs[0].modality).toBe('Remoto');
     });
 
+    it('retains "No especificado" and null modality jobs under default filters and excludes them when narrowed', () => {
+      const jobsWithUnspecified: JobSummary[] = [
+        ...sampleJobs,
+        {
+          id: 7,
+          deduplication_hash: 'hash-7',
+          source: 'computrabajo',
+          title: 'Practicante de Sistemas Sin Modalidad',
+          company: 'Empresa Test 1',
+          location: 'Lima, Perú',
+          modality: 'No especificado',
+          url: 'https://ejemplo.pe/test-7',
+          salary: null,
+          published_at: null,
+          published_date: '2026-11-11',
+          resolved_brand_key: null,
+          resolved_via_agency: false,
+          agency_clue: '',
+          sector_hint: null,
+          is_pre_professional: true,
+          is_unrealistic_or_smoke: false,
+          final_ranking_score: 75.0,
+          user_status: null,
+          user_notes: null,
+        },
+        {
+          id: 8,
+          deduplication_hash: 'hash-8',
+          source: 'computrabajo',
+          title: 'Practicante de Sistemas Modalidad Null',
+          company: 'Empresa Test 2',
+          location: 'Lima, Perú',
+          modality: null as any,
+          url: 'https://ejemplo.pe/test-8',
+          salary: null,
+          published_at: null,
+          published_date: '2026-11-11',
+          resolved_brand_key: null,
+          resolved_via_agency: false,
+          agency_clue: '',
+          sector_hint: null,
+          is_pre_professional: true,
+          is_unrealistic_or_smoke: false,
+          final_ranking_score: 74.0,
+          user_status: null,
+          user_notes: null,
+        },
+      ];
+
+      // (a) Under default filters (['Híbrido', 'Presencial', 'Remoto']), unspecified & null remain visible
+      const defaultFilters: WorkspaceFilters = {
+        ...DEFAULT_WORKSPACE_FILTERS,
+        crmTab: 'todas',
+      };
+      const defaultResult = filterAndSortWorkspaceJobs(jobsWithUnspecified, defaultFilters, fixedNow);
+      const defaultIds = defaultResult.jobs.map((j) => j.id);
+      expect(defaultIds).toContain(7);
+      expect(defaultIds).toContain(8);
+
+      // (b) When narrowed to ['Remoto'], unspecified & null are excluded cleanly
+      const narrowedFilters: WorkspaceFilters = {
+        ...DEFAULT_WORKSPACE_FILTERS,
+        crmTab: 'todas',
+        modalities: ['Remoto'],
+      };
+      const narrowedResult = filterAndSortWorkspaceJobs(jobsWithUnspecified, narrowedFilters, fixedNow);
+      const narrowedIds = narrowedResult.jobs.map((j) => j.id);
+      expect(narrowedIds).toContain(2); // Job 2 is Remoto
+      expect(narrowedIds).not.toContain(7); // 'No especificado' excluded
+      expect(narrowedIds).not.toContain(8); // null excluded
+    });
+
     it('filters by minimum score', () => {
       const filters: WorkspaceFilters = {
         ...DEFAULT_WORKSPACE_FILTERS,

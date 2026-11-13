@@ -150,6 +150,11 @@ export function PipelineBoard({ initialJobs, user }: PipelineBoardProps) {
       }
 
       setSuccessNotice('Notas guardadas correctamente');
+      setNotesDraft((prev) => {
+        const next = { ...prev };
+        delete next[String(job.id)];
+        return next;
+      });
       setActiveNotesJobId(null);
       setTimeout(() => setSuccessNotice(null), 3000);
     } catch (err) {
@@ -161,6 +166,15 @@ export function PipelineBoard({ initialJobs, user }: PipelineBoardProps) {
     } finally {
       setSavingJobId(null);
     }
+  };
+
+  const handleCancelNotes = (jobId: string | number) => {
+    setNotesDraft((prev) => {
+      const next = { ...prev };
+      delete next[String(jobId)];
+      return next;
+    });
+    setActiveNotesJobId(null);
   };
 
   return (
@@ -436,7 +450,7 @@ export function PipelineBoard({ initialJobs, user }: PipelineBoardProps) {
                                   <button
                                     type="button"
                                     disabled={isSaving}
-                                    onClick={() => setActiveNotesJobId(null)}
+                                    onClick={() => handleCancelNotes(job.id)}
                                     className="rounded-md px-2 py-1 text-xs text-slate-600 hover:bg-slate-200/60"
                                   >
                                     Cancelar

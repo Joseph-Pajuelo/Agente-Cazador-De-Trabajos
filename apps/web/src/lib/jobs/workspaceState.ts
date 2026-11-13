@@ -205,7 +205,15 @@ export function filterAndSortWorkspaceJobs(
   // 3. Modality filter
   if (filters.modalities && filters.modalities.length > 0) {
     const modSet = new Set(filters.modalities);
-    pool = pool.filter((job) => job.modality && modSet.has(job.modality));
+    const allStandardSelected = ['Híbrido', 'Presencial', 'Remoto'].every((m) =>
+      modSet.has(m)
+    );
+    pool = pool.filter((job) => {
+      if (!job.modality || job.modality === 'No especificado') {
+        return allStandardSelected;
+      }
+      return modSet.has(job.modality);
+    });
   }
 
   // 4. Source filter

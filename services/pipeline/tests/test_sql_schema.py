@@ -65,6 +65,13 @@ def test_with_check_policies_on_profiles_and_user_job_states():
     assert len(states_check) >= 2, "user_job_states must have WITH CHECK on INSERT and UPDATE policies"
 
 
+def test_profiles_insert_policy_enforces_is_admin_false():
+    sql = get_migration_sql()
+    # "Users can insert own profile" policy must enforce is_admin = false
+    pattern = r'CREATE\s+POLICY\s+"Users can insert own profile"\s+ON\s+public\.profiles\s+FOR\s+INSERT\s+TO\s+authenticated\s+WITH\s+CHECK\s*\(\s*id\s*=\s*\(\s*select\s+auth\.uid\(\)\s*\)\s+AND\s+is_admin\s*=\s*false\s*\)'
+    assert re.search(pattern, sql, re.IGNORECASE), "Users can insert own profile policy must enforce is_admin = false"
+
+
 def test_public_select_policies_anon_and_authenticated():
     sql = get_migration_sql()
     # job_listings public select

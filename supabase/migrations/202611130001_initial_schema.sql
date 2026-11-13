@@ -50,7 +50,7 @@ LANGUAGE plpgsql
 SECURITY DEFINER SET search_path = ''
 AS $$
 BEGIN
-  IF NEW.is_admin IS DISTINCT FROM OLD.is_admin AND current_setting('request.jwt.claim.role', true) IS DISTINCT FROM 'service_role' THEN
+  IF NEW.is_admin IS DISTINCT FROM OLD.is_admin AND coalesce(nullif(current_setting('request.jwt.claim.role', true), ''), nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role', '') IS DISTINCT FROM 'service_role' THEN
     NEW.is_admin := OLD.is_admin;
   END IF;
   RETURN NEW;
@@ -208,7 +208,7 @@ CREATE POLICY "Users can insert own profile"
   ON public.profiles
   FOR INSERT
   TO authenticated
-  WITH CHECK (id = (select auth.uid()));
+  WITH CHECK (id = (select auth.uid()) AND is_admin = false);
 
 -- Actualización exclusiva del propio perfil
 CREATE POLICY "Users can update own profile"
