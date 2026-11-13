@@ -60,7 +60,7 @@ describe('Task 4: Supabase Auth, Middleware, Queries & Server Actions', () => {
   });
 
   describe('2. profileUpdateSchema & validateProfileUpdatePayload', () => {
-    it('accepts valid profile updates with clean fields', () => {
+    it('accepts valid profile updates with clean fields', async () => {
       const valid = {
         full_name: 'Joseph Thorne',
         headline: 'Estudiante de Ingeniería de Sistemas',
@@ -71,17 +71,17 @@ describe('Task 4: Supabase Auth, Middleware, Queries & Server Actions', () => {
         target_areas: ['Datos', 'Desarrollo de Software'],
         technical_skills: { python: 'avanzado', sql: 'intermedio' },
       };
-      const parsed = validateProfileUpdatePayload(valid);
+      const parsed = await validateProfileUpdatePayload(valid);
       expect(parsed.ok).toBe(true);
       expect(profileUpdateSchema.safeParse(valid).success).toBe(true);
     });
 
-    it('rejects or forbids is_admin / isAdmin escalation attempts', () => {
+    it('rejects or forbids is_admin / isAdmin escalation attempts', async () => {
       const attempt1 = {
         full_name: 'Hacker',
         is_admin: true,
       };
-      const result1 = validateProfileUpdatePayload(attempt1);
+      const result1 = await validateProfileUpdatePayload(attempt1);
       expect(result1.ok).toBe(false);
       expect(profileUpdateSchema.safeParse(attempt1).success).toBe(false);
 
@@ -89,7 +89,7 @@ describe('Task 4: Supabase Auth, Middleware, Queries & Server Actions', () => {
         full_name: 'Hacker',
         isAdmin: true,
       };
-      const result2 = validateProfileUpdatePayload(attempt2);
+      const result2 = await validateProfileUpdatePayload(attempt2);
       expect(result2.ok).toBe(false);
       expect(profileUpdateSchema.safeParse(attempt2).success).toBe(false);
     });

@@ -22,11 +22,11 @@ export const profileUpdateSchema = z
 
 export type ProfileUpdateInput = z.infer<typeof profileUpdateSchema>;
 
-export function validateProfileUpdatePayload(payload: unknown): {
+export async function validateProfileUpdatePayload(payload: unknown): Promise<{
   ok: boolean;
   data?: ProfileUpdateInput;
   error?: string;
-} {
+}> {
   if (typeof payload !== 'object' || payload === null) {
     return { ok: false, error: 'INVALID_PAYLOAD' };
   }
@@ -47,7 +47,7 @@ export function validateProfileUpdatePayload(payload: unknown): {
 export async function updateProfile(
   input: ProfileUpdateInput
 ): Promise<{ ok: boolean; error?: string }> {
-  const validation = validateProfileUpdatePayload(input);
+  const validation = await validateProfileUpdatePayload(input);
   if (!validation.ok || !validation.data) {
     return { ok: false, error: validation.error || 'INVALID_INPUT' };
   }
