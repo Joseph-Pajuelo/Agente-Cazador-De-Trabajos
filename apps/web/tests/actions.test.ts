@@ -7,7 +7,13 @@ import {
 } from '../src/actions/profile';
 import { shouldRedirectToLogin } from '../src/lib/supabase/middleware';
 import { buildHistoricalSearchFilters } from '../src/lib/supabase/queries';
-import { getJobDetail, getJobDescription } from '../src/actions/jobs';
+import {
+  getJobDetail,
+  getJobDescription,
+  searchHistoricalJobs,
+  buildHistoricalSupabaseQuery,
+} from '../src/actions/jobs';
+import * as supabaseServer from '../src/lib/supabase/server';
 
 describe('Task 4: Supabase Auth, Middleware, Queries & Server Actions', () => {
   describe('1. crmStateSchema', () => {
@@ -274,6 +280,265 @@ describe('Task 4: Supabase Auth, Middleware, Queries & Server Actions', () => {
         rawDescription: null,
         error: 'SUPABASE_NOT_CONFIGURED',
       });
+    });
+  });
+
+  describe('7. SQL Filter Construction & 3VL District Exclusion Semantics', () => {
+    function createMockQueryBuilder() {
+      const orCalls: string[] = [];
+      const inCalls: { column: string; values: unknown[] }[] = [];
+      const notCalls: { column: string; operator: string; value: unknown }[] = [];
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const builder: any = {
+        select: vi.fn(() => builder),
+        is: vi.fn(() => builder),
+        eq: vi.fn(() => builder),
+        gte: vi.fn(() => builder),
+        in: vi.fn((column: string, values: unknown[]) => {
+          inCalls.push({ column, values });
+          return builder;
+        }),
+        not: vi.fn((column: string, operator: string, value: unknown) => {
+          notCalls.push({ column, operator, value });
+          return builder;
+        }),
+        or: vi.fn((filter: string) => {
+          orCalls.push(filter);
+          return builder;
+        }),
+        textSearch: vi.fn(() => builder),
+        order: vi.fn(() => builder),
+      };
+
+      const mockSupabase = {
+        from: vi.fn(() => builder),
+      };
+
+      return { mockSupabase, builder, orCalls, inCalls, notCalls };
+    }
+
+    it('constructs district.is.null,district.not.in.(...) to preserve null districts under Postgres 3VL', () => {
+      const { mockSupabase, orCalls, notCalls } = createMockQueryBuilder();
+      const filters = buildHistoricalSearchFilters({
+        excludedDistricts: ['Ate', 'Santa Anita'],
+      });
+
+      buildHistoricalSupabaseQuery(mockSupabase, filters);
+
+      // Verify that PostgREST .or() with district.is.null is used instead of bare .not('district', 'in')
+      expect(orCalls).toContain('district.is.null,district.not.in.("Ate","Santa Anita")');
+      expect(notCalls.filter((c) => c.column === 'district')).toHaveLength(0);
+    });
+
+    it('skips empty and whitespace-only entries in excludedDistricts before quoting', () => {
+      const { mockSupabase, orCalls } = createMockQueryBuilder();
+      const filters = buildHistoricalSearchFilters({
+        excludedDistricts: ['  ', 'Ate', '', '   '],
+      });
+
+      buildHistoricalSupabaseQuery(mockSupabase, filters);
+
+      expect(orCalls).toContain('district.is.null,district.not.in.("Ate")');
+    });
+
+    it('does not add district exclusion filter when excludedDistricts is empty', () => {
+      const { mockSupabase, orCalls } = createMockQueryBuilder();
+      const filters = buildHistoricalSearchFilters({
+        excludedDistricts: [],
+      });
+
+      buildHistoricalSupabaseQuery(mockSupabase, filters);
+
+      const districtExclusion = orCalls.find((c) => c.includes('district.is.null'));
+      expect(districtExclusion).toBeUndefined();
+    });
+  });
+
+  describe('8. searchHistoricalJobs Pagination & Multi-batch Unknown Refinement', () => {
+    it('returns SUPABASE_NOT_CONFIGURED gracefully when unconfigured', async () => {
+      const res = await searchHistoricalJobs({ query: 'python' });
+      expect(res).toEqual({
+        jobs: [],
+        hasMore: false,
+        nextOffset: undefined,
+        didYouMean: null,
+        note: 'SUPABASE_NOT_CONFIGURED',
+      });
+    });
+
+    it('refines unknown role levels across batches with accurate hasMore and nextOffset eliminating duplicates', async () => {
+      // 7 mock database rows:
+      // Index 0: eligible (preprofesional)
+      // Index 1: ineligible (unknown, not pre-prof) -> must skip
+      // Index 2: ineligible (unknown, not pre-prof) -> must skip
+      // Index 3: eligible (preprofesional)
+      // Index 4: eligible (unknown, pre-prof = true)
+      // Index 5: ineligible (unknown, not pre-prof) -> must skip
+      // Index 6: eligible (preprofesional)
+      const mockDbRows = [
+        {
+          id: 101,
+          deduplication_hash: 'h1',
+          source: 'linkedin',
+          title: 'Practicante Backend 1',
+          company: 'Empresa A',
+          location: 'Lima',
+          modality: 'Híbrido',
+          url: 'https://example.com/1',
+          role_level: 'preprofesional',
+          job_evaluations: [{ is_pre_professional: true, is_unrealistic_or_smoke: false }],
+        },
+        {
+          id: 102,
+          deduplication_hash: 'h2',
+          source: 'linkedin',
+          title: 'Senior Dev (Smoke/Non-pre)',
+          company: 'Empresa B',
+          location: 'Lima',
+          modality: 'Híbrido',
+          url: 'https://example.com/2',
+          role_level: 'unknown',
+          job_evaluations: [{ is_pre_professional: false, is_unrealistic_or_smoke: false }],
+        },
+        {
+          id: 103,
+          deduplication_hash: 'h3',
+          source: 'linkedin',
+          title: 'Mid Level Dev',
+          company: 'Empresa C',
+          location: 'Lima',
+          modality: 'Híbrido',
+          url: 'https://example.com/3',
+          role_level: 'unknown',
+          job_evaluations: [{ is_pre_professional: false, is_unrealistic_or_smoke: false }],
+        },
+        {
+          id: 104,
+          deduplication_hash: 'h4',
+          source: 'linkedin',
+          title: 'Practicante Backend 2',
+          company: 'Empresa D',
+          location: 'Lima',
+          modality: 'Híbrido',
+          url: 'https://example.com/4',
+          role_level: 'preprofesional',
+          job_evaluations: [{ is_pre_professional: true, is_unrealistic_or_smoke: false }],
+        },
+        {
+          id: 105,
+          deduplication_hash: 'h5',
+          source: 'linkedin',
+          title: 'Practicante Datos (Unknown evaluated pre-prof)',
+          company: 'Empresa E',
+          location: 'Lima',
+          modality: 'Híbrido',
+          url: 'https://example.com/5',
+          role_level: 'unknown',
+          job_evaluations: [{ is_pre_professional: true, is_unrealistic_or_smoke: false }],
+        },
+        {
+          id: 106,
+          deduplication_hash: 'h6',
+          source: 'linkedin',
+          title: 'Analista Senior',
+          company: 'Empresa F',
+          location: 'Lima',
+          modality: 'Híbrido',
+          url: 'https://example.com/6',
+          role_level: 'unknown',
+          job_evaluations: [{ is_pre_professional: false, is_unrealistic_or_smoke: false }],
+        },
+        {
+          id: 107,
+          deduplication_hash: 'h7',
+          source: 'linkedin',
+          title: 'Practicante Frontend',
+          company: 'Empresa G',
+          location: 'Lima',
+          modality: 'Híbrido',
+          url: 'https://example.com/7',
+          role_level: 'preprofesional',
+          job_evaluations: [{ is_pre_professional: true, is_unrealistic_or_smoke: false }],
+        },
+      ];
+
+      // Setup mock Supabase client
+      const rangeCalls: { start: number; end: number }[] = [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const createBuilder = (): any => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const b: any = {
+          select: vi.fn(() => b),
+          is: vi.fn(() => b),
+          eq: vi.fn(() => b),
+          gte: vi.fn(() => b),
+          in: vi.fn(() => b),
+          not: vi.fn(() => b),
+          or: vi.fn(() => b),
+          textSearch: vi.fn(() => b),
+          order: vi.fn(() => b),
+          range: vi.fn((start: number, end: number) => {
+            rangeCalls.push({ start, end });
+            const slice = mockDbRows.slice(start, end + 1);
+            return Promise.resolve({ data: slice, error: null });
+          }),
+        };
+        return b;
+      };
+
+      const mockClient = {
+        from: vi.fn(() => createBuilder()),
+        auth: {
+          getUser: vi.fn().mockResolvedValue({ data: { user: null }, error: null }),
+        },
+      };
+
+      vi.spyOn(supabaseServer, 'isSupabaseConfigured').mockReturnValue(true);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      vi.spyOn(supabaseServer, 'createClient').mockResolvedValue(mockClient as any);
+
+      try {
+        // Page 1: Request limit = 2 with roleLevels = ['preprofesional'], includeDiscardedAi = false
+        const page1 = await searchHistoricalJobs({
+          query: '',
+          limit: 2,
+          offset: 0,
+          roleLevels: ['preprofesional'],
+          includeDiscardedAi: false,
+        });
+
+        // Eligible items: index 0 (101) and index 3 (104). Index 4 (105) triggers hasMore.
+        expect(page1.jobs).toHaveLength(2);
+        expect(page1.jobs.map((j) => j.id)).toEqual([101, 104]);
+        expect(page1.hasMore).toBe(true);
+        // nextOffset must be index 3 + 1 = 4
+        expect(page1.nextOffset).toBe(4);
+
+        // Page 2: Request limit = 2 starting at nextOffset (4)
+        const page2 = await searchHistoricalJobs({
+          query: '',
+          limit: 2,
+          offset: page1.nextOffset,
+          roleLevels: ['preprofesional'],
+          includeDiscardedAi: false,
+        });
+
+        // Eligible items starting from index 4: index 4 (105) and index 6 (107).
+        expect(page2.jobs).toHaveLength(2);
+        expect(page2.jobs.map((j) => j.id)).toEqual([105, 107]);
+
+        // CRITICAL: ZERO duplicate job IDs between page 1 and page 2
+        const page1Ids = new Set(page1.jobs.map((j) => j.id));
+        const duplicateIds = page2.jobs.filter((j) => page1Ids.has(j.id));
+        expect(duplicateIds).toHaveLength(0);
+
+        // Reached end of data -> hasMore must be false and nextOffset undefined
+        expect(page2.hasMore).toBe(false);
+        expect(page2.nextOffset).toBeUndefined();
+      } finally {
+        vi.restoreAllMocks();
+      }
     });
   });
 });
