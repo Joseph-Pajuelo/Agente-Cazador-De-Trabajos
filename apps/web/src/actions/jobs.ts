@@ -145,8 +145,8 @@ export function isHistoricalRowEligible(
 /**
  * Builds the PostgREST query builder for historical job searches with indexed column filters.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function buildHistoricalSupabaseQuery(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: { from: (table: string) => any },
   filters: HistoricalSearchFilters
 ) {

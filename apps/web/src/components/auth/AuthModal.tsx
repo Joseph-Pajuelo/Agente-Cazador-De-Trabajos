@@ -3,11 +3,13 @@
 import React from 'react';
 import { useRouter } from 'next/navigation';
 import { X, Sparkles, AlertCircle, CheckCircle2, RefreshCw } from 'lucide-react';
-import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
+import { isSupabaseConfigured } from '@/lib/supabase/client';
 import {
-  buildCallbackRedirectUrl,
-  buildPasswordRecoveryUrl,
-  mapSupabaseAuthErrorToSpanish,
+  isPointerEventOutsideRect,
+  performGoogleOAuth,
+  performResendConfirmation,
+  performPasswordRecovery,
+  performPasswordAuth,
   type AuthErrorCode,
 } from '@/lib/auth/authHelpers';
 
@@ -28,7 +30,7 @@ export function AuthModal({
 }: AuthModalProps) {
   const router = useRouter();
   const dialogRef = React.useRef<HTMLDialogElement | null>(null);
-  const pointerDownOnBackdropRef = React.useRef<boolean>(false);
+  const pointerDownOutsideRef = React.useRef<boolean>(false);
 
   const [mode, setMode] = React.useState<'signin' | 'signup' | 'recovery'>(
     defaultMode
@@ -96,16 +98,38 @@ export function AuthModal({
     }
   }, [isOpen, defaultMode]);
 
-  // Safe light-dismiss: only trigger if BOTH pointerdown AND pointerup occurred on the backdrop
+  // Safe light-dismiss: only trigger if BOTH pointerdown AND pointerup occurred strictly outside the bounding box
   const handlePointerDown = (e: React.PointerEvent<HTMLDialogElement>) => {
-    pointerDownOnBackdropRef.current = e.target === dialogRef.current;
+    const dialog = dialogRef.current;
+    if (!dialog || e.target !== dialog) {
+      pointerDownOutsideRef.current = false;
+      return;
+    }
+    const rect = dialog.getBoundingClientRect();
+    pointerDownOutsideRef.current = isPointerEventOutsideRect(
+      rect,
+      e.clientX,
+      e.clientY
+    );
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLDialogElement>) => {
-    if (pointerDownOnBackdropRef.current && e.target === dialogRef.current) {
+    const dialog = dialogRef.current;
+    if (!dialog || e.target !== dialog) {
+      pointerDownOutsideRef.current = false;
+      return;
+    }
+    const rect = dialog.getBoundingClientRect();
+    const pointerUpOutside = isPointerEventOutsideRect(
+      rect,
+      e.clientX,
+      e.clientY
+    );
+
+    if (pointerDownOutsideRef.current && pointerUpOutside) {
       handleClose();
     }
-    pointerDownOnBackdropRef.current = false;
+    pointerDownOutsideRef.current = false;
   };
 
   const handleCancel = (e: React.SyntheticEvent<HTMLDialogElement, Event>) => {
@@ -122,86 +146,43 @@ export function AuthModal({
   };
 
   const handleGoogleSignIn = async () => {
-    if (!configured) {
-      setErrorMessage(
-        'Supabase no está configurado en las variables de entorno (.env.local).'
-      );
-      setErrorCode('GENERIC');
-      return;
-    }
+    setIsOAuthSubmitting(true);
+    setErrorMessage(null);
+    setErrorCode(null);
 
     try {
-      setIsOAuthSubmitting(true);
-      setErrorMessage(null);
-      setErrorCode(null);
-      const supabase = createClient();
-      const redirectTo = buildCallbackRedirectUrl(
-        window.location.origin,
-        getEffectiveNextPath()
-      );
-
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo,
-        },
+      const res = await performGoogleOAuth({
+        origin: window.location.origin,
+        nextPath: getEffectiveNextPath(),
       });
 
-      if (error) {
-        const mapped = mapSupabaseAuthErrorToSpanish(error.message);
-        setErrorMessage(mapped.message);
-        setErrorCode(mapped.code);
+      if (!res.success && res.error) {
+        setErrorMessage(res.error.message);
+        setErrorCode(res.error.code);
       }
-    } catch (err: unknown) {
-      const mapped = mapSupabaseAuthErrorToSpanish(
-        err instanceof Error ? err.message : 'Error al conectar con Google OAuth'
-      );
-      setErrorMessage(mapped.message);
-      setErrorCode(mapped.code);
     } finally {
       setIsOAuthSubmitting(false);
     }
   };
 
   const handleResendConfirmation = async () => {
-    if (!email) {
-      setErrorMessage('Ingresa tu correo para reenviar la confirmación.');
-      setErrorCode('GENERIC');
-      return;
-    }
-    if (!configured) {
-      setErrorMessage('Supabase no está configurado.');
-      setErrorCode('GENERIC');
-      return;
-    }
-
     setIsResending(true);
+    setErrorMessage(null);
+    setErrorCode(null);
+
     try {
-      const supabase = createClient();
-      const emailRedirectTo = buildCallbackRedirectUrl(
-        window.location.origin,
-        getEffectiveNextPath()
-      );
-      const { error } = await supabase.auth.resend({
-        type: 'signup',
+      const res = await performResendConfirmation({
         email,
-        options: {
-          emailRedirectTo,
-        },
+        origin: window.location.origin,
+        nextPath: getEffectiveNextPath(),
       });
 
-      if (error) {
-        const mapped = mapSupabaseAuthErrorToSpanish(error.message);
-        setErrorMessage(mapped.message);
-        setErrorCode(mapped.code);
-      } else {
-        setSuccessMessage(
-          '¡Correo de confirmación reenviado! Revisa tu bandeja de entrada o spam.'
-        );
+      if (!res.success && res.error) {
+        setErrorMessage(res.error.message);
+        setErrorCode(res.error.code);
+      } else if (res.message) {
+        setSuccessMessage(res.message);
       }
-    } catch {
-      setErrorMessage('Error al reenviar el correo de confirmación.');
-      setErrorCode('GENERIC');
     } finally {
       setIsResending(false);
     }
@@ -211,111 +192,47 @@ export function AuthModal({
     e.preventDefault();
     setTouched({ email: true, password: true, fullName: true });
 
-    if (!configured) {
-      setErrorMessage(
-        'Supabase no está configurado en las variables de entorno (.env.local).'
-      );
-      setErrorCode('GENERIC');
-      return;
-    }
-
     setIsSubmitting(true);
     setErrorMessage(null);
     setErrorCode(null);
     setSuccessMessage(null);
 
     try {
-      const supabase = createClient();
-
       if (mode === 'recovery') {
-        if (!email) {
-          setErrorMessage('Por favor ingresa tu correo electrónico.');
-          setIsSubmitting(false);
-          return;
-        }
-
-        const redirectTo = buildPasswordRecoveryUrl(window.location.origin);
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo,
-        });
-
-        if (error) {
-          const mapped = mapSupabaseAuthErrorToSpanish(error.message);
-          setErrorMessage(mapped.message);
-          setErrorCode(mapped.code);
-        } else {
-          setSuccessMessage(
-            'Te hemos enviado un correo con las instrucciones para restablecer tu contraseña. Revisa tu bandeja de entrada.'
-          );
-        }
-      } else if (mode === 'signup') {
-        if (!email || !password) {
-          setErrorMessage('Por favor completa todos los campos requeridos.');
-          setIsSubmitting(false);
-          return;
-        }
-
-        const emailRedirectTo = buildCallbackRedirectUrl(
-          window.location.origin,
-          getEffectiveNextPath()
-        );
-        const { error, data } = await supabase.auth.signUp({
+        const res = await performPasswordRecovery({
           email,
-          password,
-          options: {
-            emailRedirectTo,
-            data: {
-              full_name: fullName.trim() || undefined,
-            },
-          },
+          origin: window.location.origin,
         });
 
-        if (error) {
-          const mapped = mapSupabaseAuthErrorToSpanish(error.message);
-          setErrorMessage(mapped.message);
-          setErrorCode(mapped.code);
-        } else if (data.session) {
-          setSuccessMessage('¡Cuenta creada exitosamente! Conectando...');
-          setTimeout(() => {
-            handleClose();
-            router.refresh();
-          }, 800);
-        } else {
-          setSuccessMessage(
-            '¡Registro recibido! Por favor revisa tu correo electrónico para confirmar tu cuenta.'
-          );
+        if (!res.success && res.error) {
+          setErrorMessage(res.error.message);
+          setErrorCode(res.error.code);
+        } else if (res.message) {
+          setSuccessMessage(res.message);
         }
       } else {
-        // signin mode
-        if (!email || !password) {
-          setErrorMessage('Por favor completa todos los campos requeridos.');
-          setIsSubmitting(false);
-          return;
-        }
-
-        const { error } = await supabase.auth.signInWithPassword({
+        const res = await performPasswordAuth({
+          mode,
           email,
           password,
+          fullName,
+          origin: window.location.origin,
+          nextPath: getEffectiveNextPath(),
         });
 
-        if (error) {
-          const mapped = mapSupabaseAuthErrorToSpanish(error.message);
-          setErrorMessage(mapped.message);
-          setErrorCode(mapped.code);
+        if (!res.success && res.error) {
+          setErrorMessage(res.error.message);
+          setErrorCode(res.error.code);
         } else {
-          setSuccessMessage('¡Sesión iniciada correctamente!');
-          setTimeout(() => {
-            handleClose();
-            router.refresh();
-          }, 600);
+          setSuccessMessage(res.message || '¡Operación exitosa!');
+          if (res.hasSession) {
+            setTimeout(() => {
+              handleClose();
+              router.refresh();
+            }, mode === 'signup' ? 800 : 600);
+          }
         }
       }
-    } catch (err: unknown) {
-      const mapped = mapSupabaseAuthErrorToSpanish(
-        err instanceof Error ? err.message : 'Error al procesar la autenticación'
-      );
-      setErrorMessage(mapped.message);
-      setErrorCode(mapped.code);
     } finally {
       setIsSubmitting(false);
     }
