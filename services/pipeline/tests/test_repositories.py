@@ -9,7 +9,7 @@ from domain.ranking import is_job_recent
 
 from storage.base import normalize_listing_enrichment, JobRepository, CRM_STATUS_MAP
 from storage.supabase_repo import SupabaseRepository
-from scripts.migrate_sqlite_to_supabase import run_migration, map_crm_status
+from scripts.migrate_sqlite_to_supabase import run_migration, map_crm_status, resolve_owner_user_id
 
 
 def test_normalize_listing_enrichment_agency_resolution_and_date():
@@ -245,3 +245,144 @@ def test_migrate_sqlite_to_supabase_dry_run():
 
     # In dry run, no database writes should occur
     mock_client.table.assert_not_called()
+
+
+def test_supabase_repository_insert_listing_existing_does_not_upsert_or_reset_status():
+    mock_client = MagicMock()
+    listings_table = MagicMock()
+
+    # Mock select().eq().execute() returning an existing row
+    select_query = MagicMock()
+    select_query.eq.return_value.execute.return_value = MagicMock(data=[{"id": 42}])
+    listings_table.select.return_value = select_query
+
+    mock_client.table.return_value = listings_table
+
+    repo = SupabaseRepository(client=mock_client)
+    listing = JobListing(
+        source=JobSource.BUMERAN,
+        title="Practicante de TI",
+        company="BCP",
+        url="https://bumeran.com.pe/job/10",
+        raw_description="Automatización de procesos con Python.",
+        published_at="2026-11-10",
+    )
+
+    row_id, is_new = repo.insert_listing(listing)
+
+    # Must return existing ID and is_new = False
+    assert row_id == 42
+    assert is_new is False
+
+    # CRITICAL: upsert / insert MUST NOT be called so existing status is NOT reset to PENDING_EVALUATION
+    listings_table.upsert.assert_not_called()
+    listings_table.insert.assert_not_called()
+
+
+def test_supabase_repository_reset_evaluations_scoped_to_null_profile():
+    mock_client = MagicMock()
+    evaluations_table = MagicMock()
+    listings_table = MagicMock()
+
+    def table_router(table_name):
+        if table_name == "job_evaluations":
+            return evaluations_table
+        elif table_name == "job_listings":
+            return listings_table
+        return MagicMock()
+
+    mock_client.table.side_effect = table_router
+
+    repo = SupabaseRepository(client=mock_client)
+    repo.reset_evaluations()
+
+    # Scoped to base evaluations where profile_id IS NULL
+    evaluations_table.delete.return_value.is_.assert_called_once_with("profile_id", "null")
+    evaluations_table.delete.return_value.is_.return_value.execute.assert_called_once()
+
+
+def test_supabase_repository_get_all_evaluated_jobs_scoped_to_null_profile():
+    mock_client = MagicMock()
+    evaluations_table = MagicMock()
+
+    mock_client.table.return_value = evaluations_table
+    evaluations_table.select.return_value.is_.return_value.order.return_value.execute.return_value = MagicMock(data=[])
+
+    repo = SupabaseRepository(client=mock_client)
+    repo.get_all_evaluated_jobs()
+
+    # Scoped to base evaluations where profile_id IS NULL
+    evaluations_table.select.return_value.is_.assert_called_once_with("profile_id", "null")
+
+
+def test_resolve_owner_user_id_success_and_crm_migration():
+    mock_client = MagicMock()
+
+    # Mock admin user objects
+    user1 = MagicMock(id="user-uuid-1", email="other@example.com")
+    user2 = MagicMock(id="user-uuid-42", email="owner@example.com")
+    mock_client.auth.admin.list_users.return_value = [user1, user2]
+
+    # Test resolution
+    resolved_id = resolve_owner_user_id(mock_client, "owner@example.com")
+    assert resolved_id == "user-uuid-42"
+
+    # Case-insensitive resolution
+    resolved_id_upper = resolve_owner_user_id(mock_client, "OWNER@example.com")
+    assert resolved_id_upper == "user-uuid-42"
+
+
+def test_resolve_owner_user_id_not_found_skips_crm_and_never_falls_back():
+    mock_client = MagicMock()
+
+    # Mock admin user objects with no match
+    user1 = MagicMock(id="user-uuid-1", email="someone@example.com")
+    mock_client.auth.admin.list_users.return_value = [user1]
+
+    resolved_id = resolve_owner_user_id(mock_client, "nonexistent@example.com")
+    assert resolved_id is None
+
+    # Test run_migration with non-existent user
+    sample_catalog = {
+        "version": "1.0",
+        "listings": [
+            {
+                "deduplication_hash": "hash_crm",
+                "source": "Bumeran",
+                "title": "Practicante",
+                "company": "BCP",
+                "url": "https://example.com/crm",
+                "raw_description": "Dev",
+                "crm": {"status": "⭐ Favorita", "notes": "Test note"},
+            }
+        ],
+        "evaluations": [],
+    }
+
+    user_job_states_table = MagicMock()
+    job_listings_table = MagicMock()
+    job_listings_table.upsert.return_value.execute.return_value = MagicMock(data=[{"id": 10}])
+    job_listings_table.select.return_value.in_.return_value.execute.return_value = MagicMock(
+        data=[{"id": 10, "deduplication_hash": "hash_crm"}]
+    )
+
+    def table_router(table_name):
+        if table_name == "user_job_states":
+            return user_job_states_table
+        elif table_name == "job_listings":
+            return job_listings_table
+        return MagicMock()
+
+    mock_client.table.side_effect = table_router
+
+    stats = run_migration(
+        catalog_data=sample_catalog,
+        supabase_client=mock_client,
+        dry_run=False,
+        owner_email="nonexistent@example.com",
+    )
+
+    # CRM states must be skipped and NEVER inserted for arbitrary users
+    assert stats["inserted_crm_states"] == 0
+    user_job_states_table.insert.assert_not_called()
+

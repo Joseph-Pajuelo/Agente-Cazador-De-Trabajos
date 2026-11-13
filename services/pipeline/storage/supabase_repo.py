@@ -76,11 +76,12 @@ class SupabaseRepository(JobRepository):
             .eq("deduplication_hash", listing.deduplication_hash)
             .execute()
         )
-        is_new = not (existing.data and len(existing.data) > 0)
+        if existing.data and len(existing.data) > 0:
+            return existing.data[0]["id"], False
 
         resp = self.client.table("job_listings").upsert(payload, on_conflict="deduplication_hash").execute()
-        row_id = resp.data[0]["id"] if (resp.data and len(resp.data) > 0) else (existing.data[0]["id"] if existing.data else None)
-        return row_id, is_new
+        row_id = resp.data[0]["id"] if (resp.data and len(resp.data) > 0) else None
+        return row_id, True
 
     def insert_evaluation(
         self,
@@ -141,15 +142,16 @@ class SupabaseRepository(JobRepository):
         return results
 
     def reset_evaluations(self) -> None:
-        """Limpia evaluaciones y marca vacantes como pendientes."""
-        self.client.table("job_evaluations").delete().neq("id", 0).execute()
+        """Limpia evaluaciones del catálogo base (profile_id IS NULL) y marca vacantes como pendientes."""
+        self.client.table("job_evaluations").delete().is_("profile_id", "null").execute()
         self.client.table("job_listings").update({"status": "PENDING_EVALUATION"}).neq("id", 0).execute()
 
     def get_all_evaluated_jobs(self) -> List[Dict[str, Any]]:
-        """Recupera todas las vacantes evaluadas con sus datos completos."""
+        """Recupera todas las vacantes evaluadas del catálogo base (profile_id IS NULL) con sus datos completos."""
         resp = (
             self.client.table("job_evaluations")
             .select("*, job_listings(*)")
+            .is_("profile_id", "null")
             .order("final_ranking_score", desc=True)
             .execute()
         )

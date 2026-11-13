@@ -169,6 +169,45 @@ def load_catalog_from_sqlite(db_path: Path, crm_path: Optional[Path] = None) -> 
     }
 
 
+def resolve_owner_user_id(supabase_client: Any, owner_email: str) -> Optional[str]:
+    """
+    Busca el user_id correspondiente a owner_email usando la API Admin de auth.
+    Retorna el UUID como string si existe, o None si no se encuentra.
+    """
+    if not owner_email or not hasattr(supabase_client, "auth"):
+        return None
+
+    try:
+        admin_auth = getattr(supabase_client.auth, "admin", None)
+        if not admin_auth or not hasattr(admin_auth, "list_users"):
+            logger.error("supabase_client.auth.admin.list_users no está disponible.")
+            return None
+
+        users_resp = admin_auth.list_users()
+        users_list = users_resp
+        if hasattr(users_resp, "users"):
+            users_list = users_resp.users
+        elif isinstance(users_resp, dict) and "users" in users_resp:
+            users_list = users_resp["users"]
+
+        target_email = owner_email.strip().lower()
+        for u in users_list or []:
+            email = getattr(u, "email", None)
+            if email is None and isinstance(u, dict):
+                email = u.get("email")
+            if email and str(email).strip().lower() == target_email:
+                uid = getattr(u, "id", None)
+                if uid is None and isinstance(u, dict):
+                    uid = u.get("id")
+                return str(uid) if uid else None
+
+        logger.warning(f"No se encontró ningún usuario registrado en auth.users con email: {owner_email}")
+        return None
+    except Exception as e:
+        logger.error(f"Error al listar usuarios mediante auth.admin: {e}")
+        return None
+
+
 def run_migration(
     catalog_data: dict,
     supabase_client: Any,
@@ -277,16 +316,7 @@ def run_migration(
     # 4. Asignar estados CRM a usuario si se indicó owner_email
     if owner_email and crm_states_to_migrate:
         logger.info(f"Buscando perfil para owner email: {owner_email}...")
-        # Buscar en profiles
-        prof_resp = supabase_client.table("profiles").select("id").ilike("headline", f"%{owner_email}%").execute()
-        user_id = None
-        if prof_resp.data and len(prof_resp.data) > 0:
-            user_id = prof_resp.data[0]["id"]
-        else:
-            # Alternativa: verificar si id coincide con auth.users vía rpc o consultar primera fila si único
-            all_profs = supabase_client.table("profiles").select("id").limit(1).execute()
-            if all_profs.data:
-                user_id = all_profs.data[0]["id"]
+        user_id = resolve_owner_user_id(supabase_client, owner_email)
 
         if user_id:
             logger.info(f"Asignando estados CRM al usuario {user_id} ({owner_email})...")
@@ -318,7 +348,10 @@ def run_migration(
                 stats["inserted_crm_states"] = len(resp.data or [])
                 logger.info(f"Insertados {stats['inserted_crm_states']} nuevos estados CRM para {owner_email}.")
         else:
-            logger.warning(f"No se encontró un usuario para el email {owner_email}. Estados CRM omitidos.")
+            logger.error(
+                f"No se pudo resolver usuario para email '{owner_email}'. "
+                f"Se omitió la migración de los {len(crm_states_to_migrate)} estados CRM para evitar asignarlos a un usuario arbitrario."
+            )
 
     return stats
 
