@@ -105,12 +105,15 @@ def run_pipeline(
         if selected_adapters is None or a.name in selected_adapters
     ]
 
+    from domain.normalization import classify_systems_software_relevance
+
     total_extracted = 0
+    total_filtered_off_career = 0
     total_new = 0
     per_source_stats = {}
     known_urls = db.get_known_urls()
 
-    # 1. Extracción y deduplicación por cada Adapter seleccionado
+    # 1. Extracción, filtro estricto Sistemas/Software y deduplicación por cada Adapter seleccionado
     for idx, adapter in enumerate(adapters):
         if on_progress:
             on_progress(f"Escaneando {adapter.name} ({idx + 1}/{len(adapters)})...", (idx / max(len(adapters) + 1, 1)))
@@ -118,15 +121,37 @@ def run_pipeline(
         listings = adapter.fetch_listings(limit=limit_per_source, known_urls=known_urls)
         total_extracted += len(listings)
         new_in_source = 0
+        filtered_out_in_source = 0
         for item in listings:
+            source_val = item.source.value if hasattr(item.source, "value") else str(item.source)
+            is_relevant, reject_reason = classify_systems_software_relevance(
+                item.title,
+                item.raw_description,
+                source_val,
+            )
+            if not is_relevant:
+                filtered_out_in_source += 1
+                total_filtered_off_career += 1
+                logger.debug(
+                    f"[FILTRADA - {adapter.name}] ({reject_reason}) {item.title} @ {item.company}"
+                )
+                continue
             _, is_new = db.insert_listing(item)
             if is_new:
                 total_new += 1
                 new_in_source += 1
                 logger.info(f"[NUEVA - {adapter.name}] {item.title} @ {item.company} ({item.modality.value})")
-        per_source_stats[adapter.name] = {"extracted": len(listings), "new": new_in_source}
+        per_source_stats[adapter.name] = {
+            "extracted": len(listings),
+            "filtered_off_career": filtered_out_in_source,
+            "new": new_in_source,
+        }
 
-    logger.info(f"Extracción finalizada. Extraídas: {total_extracted} | Nuevas únicas: {total_new}")
+    logger.info(
+        f"Extracción finalizada. Extraídas: {total_extracted} | "
+        f"Filtradas fuera de Sistemas/Software: {total_filtered_off_career} | "
+        f"Nuevas únicas: {total_new}"
+    )
 
     # 2. Evaluación (Pre-filtro + Gemini 3.8 Flash con Circuit Breaker)
     matcher = JobMatcherAI()
@@ -163,6 +188,7 @@ def run_pipeline(
     engine_label = f"Gemini ({matcher.MODEL_ID})" if (matcher.client and not matcher._circuit_open) else "Heurístico + Circuit Breaker"
     return {
         "extracted": total_extracted,
+        "filtered_off_career": total_filtered_off_career,
         "new": total_new,
         "evaluated": len(pending_jobs),
         "recommended": len(recommended),

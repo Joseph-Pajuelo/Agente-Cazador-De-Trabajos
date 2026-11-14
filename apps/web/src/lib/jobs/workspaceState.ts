@@ -103,8 +103,9 @@ export function computeCrmCounts(
   const includeAi = Boolean(options?.includeDiscardedAi);
 
   const visibleJobs = jobs.filter((job) => {
-    if (includeAi) return true;
     if (job.user_status) return true;
+    if (job.engine === 'off_career_filter') return false;
+    if (includeAi) return true;
     if (job.is_pre_professional === false || job.is_unrealistic_or_smoke === true) {
       return false;
     }
@@ -339,37 +340,8 @@ export function isJobEligibleForRoleLevels(
     return true;
   }
 
-  // Check matching against selected roleLevels
-  let matches = false;
-
-  if (roleLevels.includes('preprofesional')) {
-    if (resolvedLevel === 'preprofesional') {
-      matches = true;
-    } else if (
-      resolvedLevel === 'unknown' &&
-      (job.is_pre_professional !== false || includeAi)
-    ) {
-      matches = true;
-    }
-  }
-
-  if (roleLevels.includes('profesional')) {
-    if (resolvedLevel === 'profesional') {
-      matches = true;
-    }
-  }
-
-  if (roleLevels.includes('trainee_junior')) {
-    if (resolvedLevel === 'trainee_junior') {
-      matches = true;
-    }
-  }
-
-  if (roleLevels.includes('unknown') && resolvedLevel === 'unknown') {
-    matches = true;
-  }
-
-  return matches;
+  // Strictly match selected roleLevels so 'unknown' or 'profesional' never leaks into 'preprofesional'
+  return roleLevels.includes(resolvedLevel);
 }
 
 /**
@@ -401,6 +373,9 @@ export function filterAndSortWorkspaceJobs(
       filters.includeDiscardedAi
     );
   });
+
+  // Exclude DB-flagged off-career / senior rows unless explicitly tracked by user
+  pool = pool.filter((job) => Boolean(job.user_status) || job.engine !== 'off_career_filter');
 
   // 2. Antiquity / Recency filter (only if not "Cualquier fecha")
   if (filters.maxAgeDays !== null) {

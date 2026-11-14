@@ -4,7 +4,6 @@ import { createClient, isSupabaseConfigured } from '../lib/supabase/server';
 import {
   buildHistoricalSearchFilters,
   mapRowToJobSummary,
-  isHistoricalRowEligible,
   buildHistoricalSupabaseQuery,
   type HistoricalSearchParams,
 } from '../lib/supabase/queries';
@@ -111,69 +110,24 @@ export async function searchHistoricalJobs(
       userId = null;
     }
 
-    const hasRoleLevels = filters.roleLevels && filters.roleLevels.length > 0;
-    const includesPreprof = hasRoleLevels && filters.roleLevels.includes('preprofesional');
-    // Only refine in-memory when preprofesional is requested AND discarded AI items are hidden
-    const needsUnknownRefinement = includesPreprof && !filters.includeDiscardedAi;
-
     const collected: Array<{ row: Record<string, unknown>; sqlIndex: number }> = [];
-    let currentSqlOffset = offset;
-    const batchSize = limit * 2 + 1;
     let queryErrorMessage: string | null = null;
 
-    if (!needsUnknownRefinement) {
-      const { data: rawRows, error } = await buildHistoricalSupabaseQuery(
-        supabase,
-        filters
-      ).range(offset, offset + limit);
+    const { data: rawRows, error } = await buildHistoricalSupabaseQuery(
+      supabase,
+      filters
+    ).range(offset, offset + limit);
 
-      if (error) {
-        queryErrorMessage = error.message;
-      } else {
-        const rows = (rawRows as Record<string, unknown>[]) || [];
-        for (let i = 0; i < rows.length; i++) {
-          collected.push({ row: rows[i], sqlIndex: offset + i });
-        }
-      }
+    if (error) {
+      queryErrorMessage = error.message;
     } else {
-      // Bounded scan loop up to 5 batches of `batchSize = limit * 2 + 1`
-      const maxBatches = 5;
-      for (let batch = 0; batch < maxBatches; batch++) {
-        const batchStart = currentSqlOffset;
-        const batchEnd = batchStart + batchSize - 1;
-
-        const { data: batchRows, error } = await buildHistoricalSupabaseQuery(
-          supabase,
-          filters
-        ).range(batchStart, batchEnd);
-
-        if (error) {
-          queryErrorMessage = error.message;
-          break;
-        }
-
-        const rows = (batchRows as Record<string, unknown>[]) || [];
-        if (rows.length === 0) {
-          break;
-        }
-
-        for (let i = 0; i < rows.length; i++) {
-          const r = rows[i];
-          const sqlIdx = batchStart + i;
-
-          if (isHistoricalRowEligible(r, filters.includeDiscardedAi)) {
-            collected.push({ row: r, sqlIndex: sqlIdx });
-            if (collected.length > limit) {
-              break;
-            }
-          }
-        }
-
-        currentSqlOffset += rows.length;
-
-        // If we found limit + 1 items or reached the end of available records:
-        if (collected.length > limit || rows.length < batchSize) {
-          break;
+      const rows = (rawRows as Record<string, unknown>[]) || [];
+      for (let i = 0; i < rows.length; i++) {
+        if (
+          filters.roleLevels.length === 0 ||
+          filters.roleLevels.includes(String(rows[i].role_level ?? 'unknown'))
+        ) {
+          collected.push({ row: rows[i], sqlIndex: offset + i });
         }
       }
     }

@@ -523,58 +523,144 @@ export function extractSalaryPEN(
 }
 
 /**
- * Extracts role level from title and raw description without relying on AI evaluations.
+ * Removes portal footers, Peru Ley N° 29733 data-protection boilerplate,
+ * and past-experience phrasing so classifiers evaluate the target role itself.
+ */
+export function stripDescriptionBoilerplate(rawDescription?: string | null): string {
+  if (!rawDescription) return '';
+  let text = rawDescription;
+
+  // Strip practicas.pe / portal footer recommendations that mention both Pre & Pro channels
+  text = text.split(/\n\s*Te sugerimos\s*:/i)[0] ?? text;
+  text = text.split(/\n\s*Recomendaciones para postular\b/i)[0] ?? text;
+  text = text.split(/¿Eres estudiante\?\s*Únete a nuestro canal/i)[0] ?? text;
+
+  // Strip CVMatcher summary disclaimer
+  text = text.replace(/Nota:\s*CVMatcher[^\n]*/gi, ' ');
+
+  // Strip Peru Ley N° 29733 data protection boilerplate (avoids false "Datos" category hits)
+  text = text.replace(
+    /ley\s+(?:de\s+protecci[oó]n\s+de\s+datos\s+personales[^\n.]*|n[°º]?\s*29733[^\n.]*)/gi,
+    ' '
+  );
+  text = text.replace(/protecci[oó]n\s+de\s+datos\s+personales[^\n.]*/gi, ' ');
+  text = text.replace(/tratamiento\s+de\s+(?:sus\s+)?datos\s+personales[^\n.]*/gi, ' ');
+  text = text.replace(/banco\s+de\s+datos\s+(?:personales|de\s+postulantes)[^\n.]*/gi, ' ');
+
+  // Strip prior-experience references like "experiencia como practicante preprofesional"
+  text = text.replace(
+    /experiencia(?:\s+previa)?(?:\s+(?:minima|mínima|min|deseable))?(?:\s+de[^\n.;,]*)?\s+(?:como|en)\s+practicante\s+pre\s*-?\s*profesional(?:es)?/gi,
+    ' '
+  );
+  text = text.replace(/mediante\s+pr[aá]cticas\s+pre\s*-?\s*profesional(?:es)?/gi, ' ');
+  text = text.replace(/haber\s+realizado\s+pr[aá]cticas\s+pre\s*-?\s*profesional(?:es)?/gi, ' ');
+
+  return text;
+}
+
+/**
+ * Extracts role level from title and boilerplate-stripped description without relying on AI evaluations.
  */
 export function extractRoleLevel(
   title?: string | null,
   rawDescription?: string | null
 ): RoleLevel {
   const normTitle = normalizeText(title);
-  const normDesc = normalizeText(rawDescription);
+  const normDesc = normalizeText(stripDescriptionBoilerplate(rawDescription));
 
-  // 1. Direct title checks (highest precision)
-  const isTitlePre =
-    /\b(preprofesional|pre profesional|pre-profesional|practicas pre|practica pre|intern|internship|pasante|pasantia)\b/.test(
-      normTitle
-    );
-  if (isTitlePre) return 'preprofesional';
-
+  // 1. Direct title checks (disambiguates "Practicante PRO", "(Egresados)", "Especialista Cloud Junior", etc.)
   const isTitlePro =
-    /\b(practicante profesional|practicas profesionales|practica profesional|egresado|bachiller|asistente|analista|coordinador)\b/.test(
+    /\b(practicante profesional|practicante pro|practicas profesionales|practica profesional|profesional|egresado|egresados|egresada|egresadas|bachiller|bachilleres|graduado|titulado|asistente|analista|consultor|consultora|tester|especialista|coordinador|jefe|supervisor|subgerente|sub gte|gerente|arquitecto|semi senior|senior|ingenier[oa] de software|ingenier[oa] de sistemas|ingenierio|software engineer|administrador de servidores|operador de sistemas|tecnico de soporte|technical support)\b/.test(
       normTitle
     );
-  if (isTitlePro) return 'profesional';
+  const isTitleTraineeJr = /\b(trainee|junior|jr|entry level|joven talento)\b/.test(normTitle);
+  const isTitlePreExplicit =
+    /\b(preprofesional|pre profesional|preprof|practicas pre|practica pre)\b/.test(normTitle);
+  const isTitleIntern = /\b(intern|internship|pasante|pasantia)\b/.test(normTitle);
+  const isTitlePracticante = /\b(practicante|practicantes|practicas|practica|pasante|intern)\b/.test(
+    normTitle
+  );
 
-  const isTitleTraineeJr = /\b(trainee|junior|\bjr\b|entry level|joven talento)\b/.test(normTitle);
-  if (isTitleTraineeJr) return 'trainee_junior';
-
-  // 2. Explicit structured modality headers in description (e.g. Practicas.pe "Modalidad de prácticas: Pre-Profesional")
-  if (/\bmodalidad de practicas\s+pre\s*profesional\b/.test(normDesc)) {
-    return 'preprofesional';
-  }
-  if (/\bmodalidad de practicas\s+profesional\b/.test(normDesc)) {
+  if (isTitlePro && !isTitlePreExplicit) {
+    if (
+      isTitleTraineeJr &&
+      !/\b(profesional|pro|egresad|bachiller|jefe|gerente|subgerente|senior)\b/.test(normTitle)
+    ) {
+      return 'trainee_junior';
+    }
     return 'profesional';
   }
 
-  // 3. Description checks for preprofesional vs profesional vs trainee_junior
-  const hasDescPre =
-    /\b(preprofesional|pre profesional|pre-profesional|practicas pre|practica pre|estudiante universitario|estudiantes universitarios|ultimos ciclos|cursando|estudiante de|alumnos de|convenio de practicas|6to|7mo|8vo|9no|sexto ciclo|septimo ciclo|octavo ciclo|noveno ciclo)\b/.test(
-      normDesc
-    );
+  if (isTitlePreExplicit) return 'preprofesional';
+  if (isTitleTraineeJr) return 'trainee_junior';
 
+  if (isTitleIntern) {
+    if (
+      /\b(modalidad (?:de )?practicas profesional|practicas profesionales|convenio de practicas profesionales)\b/.test(
+        normDesc
+      ) &&
+      !/\b(preprofesional|pre profesional)\b/.test(normDesc)
+    ) {
+      return 'profesional';
+    }
+    return 'preprofesional';
+  }
+
+  // 2. Description checks (full text with footer and legal boilerplate removed)
   const hasDescPro =
-    /\b(practicante profesional|practicas profesionales|practica profesional|egresado|bachiller|graduado|titulado)\b/.test(
+    /\b(practicante profesional|practicas profesionales|practica profesional|convenio de practicas profesionales|egresado|egresados|egresada|egresadas|bachiller|bachilleres|graduado|titulado|recien egresad[oa]s?)\b/.test(
       normDesc
     ) && !/\b(no egresado|sin egresar|abstenerse egresados)\b/.test(normDesc);
 
-  const hasDescTraineeJr = /\b(trainee|junior|\bjr\b|entry level|jovenes talentos|joven talento)\b/.test(
+  const descNoProConv = normDesc.replace(/\bconvenio de practicas profesional(?:es)?\b/g, ' ');
+  const hasDescPre =
+    /\b(preprofesional|preprofesionales|pre profesional|pre profesionales|practicas pre|practica pre|convenio de practicas pre ?profesional(?:es)?|estudiante (?:universitario|universitaria|tecnico|actual|de|en|entre|desde|o (?:recien )?egresad[oa]s?|y o (?:recien )?egresad[oa]s?)|estudiantes (?:universitarios|universitarias|tecnicos|actuales|de|en|entre|desde)|ultimos ciclos|cursando|alumnos de|formacion en curso|estudios (?:universitarios |tecnicos )?en curso|6to|7mo|8vo|9no|10mo|6 a 8 ciclo|7 a 9 ciclo|7 a 10 ciclo|8 a 10 ciclo|sexto ciclo|septimo ciclo|octavo ciclo|noveno ciclo|decimo ciclo|constancia de estudios|pursuing a (?:bachelor|technical|computer|degree)|currently pursuing|university student)\b/.test(
+      descNoProConv
+    );
+
+  // Explicit modality headers (cross-checked against "Formación académica: Egresado..." typos)
+  const hasModPre = /\bmodalidad (?:de )?(?:practicas )?pre ?profesional(?:es)?\b/.test(normDesc);
+  const hasModPro = /\bmodalidad (?:de )?practicas profesional(?:es)?\b/.test(normDesc);
+  if (hasModPro && !hasModPre) {
+    return 'profesional';
+  }
+  if (hasModPre) {
+    if (
+      /\bformacion academica egresad[oa]\b/.test(normDesc) &&
+      !/\bestudiante\b/.test(descNoProConv)
+    ) {
+      return 'profesional';
+    }
+    return 'preprofesional';
+  }
+
+  const hasDescTraineeJr = /\b(trainee|programa trainee|junior|jr|entry level|jovenes talentos|joven talento)\b/.test(
     normDesc
   );
 
-  if (hasDescPre && !hasDescPro) return 'preprofesional';
+  if (
+    !isTitlePracticante &&
+    /\b(?:1|2|3) anos? de experiencia\b|\bexperiencia desde 6 meses\b/.test(normDesc)
+  ) {
+    return hasDescTraineeJr ? 'trainee_junior' : 'profesional';
+  }
+
   if (hasDescPro && !hasDescPre) return 'profesional';
+  if (hasDescPre && !hasDescPro) return 'preprofesional';
   if (hasDescPre && hasDescPro) {
-    // Mixed pre/pro description ("estudiantes de últimos ciclos o recién egresados"):
+    if (
+      /\bconvenio de practicas profesionales\b/.test(normDesc) &&
+      !/\b(preprofesional|pre profesional)\b/.test(normDesc)
+    ) {
+      return 'profesional';
+    }
+    if (
+      /\bbusqueda de (?:un|una|un a) practicante profesional\b|\bocupar la posicion de practicante profesional\b/.test(
+        normDesc
+      )
+    ) {
+      return 'profesional';
+    }
     return 'preprofesional';
   }
   if (hasDescTraineeJr) return 'trainee_junior';
@@ -865,17 +951,17 @@ const CATEGORY_RULES: CategoryRule[] = [
 ];
 
 /**
- * Extracts category using weighted keyword scores across title and description.
+ * Extracts category using weighted keyword scores across title and boilerplate-stripped description.
  */
 export function extractCategory(
   title?: string | null,
   rawDescription?: string | null
 ): LimaCategory {
   const normTitle = normalizeText(title);
-  const normDesc = normalizeText(rawDescription);
+  const normDesc = normalizeText(stripDescriptionBoilerplate(rawDescription));
 
   let bestCategory: LimaCategory = 'Sistemas & TI';
-  let maxScore = -1;
+  let maxScore = 0;
 
   for (const rule of CATEGORY_RULES) {
     let score = 0;
@@ -898,6 +984,140 @@ export function extractCategory(
   }
 
   return bestCategory;
+}
+
+const SENIOR_MANAGEMENT_TITLE_RE =
+  /\b(subgerente|sub gte|gerente|jefe|subdirector|director|semi senior|ssr|senior|sr|lead|tech lead|lider tecnico|principal|staff|architect|arquitecto)\b/;
+const EXPLICIT_CS_SW_CAREER_RE =
+  /\b(ing(?:enieria)? (?:de |en )?sistemas(?: e informatica| y computacion)?|sistemas e informatica|ing(?:enieria)? (?:de |en )?software|ing(?:enieria)? informatica(?: y de sistemas)?|ing(?:enieria)? (?:de |en )?computacion(?: e informatica| y sistemas)?|ciencias? de la computacion|computer science|ciencia de datos|data science|computacion e informatica|informatica|carreras? afines a (?:la )?tecnologia|ing(?:enieria)? (?:de )?telecomunicaciones y (?:redes|sistemas)|ing(?:enieria)? empresarial y de sistemas|tecnologias? de (?:la )?informacion|information technology|ciberseguridad|seguridad informatica|redes y comunicaciones)\b/;
+const FALSE_SYSTEMS_PHRASES_RE =
+  /\b(sistema integrado de gestion|sistemas integrados de gestion|sistemas de bombeo|sistemas hidraulicos|sistemas de riego|sistemas electricos|sistemas de puesta a tierra|sistemas mecanicos|sistemas contables|sistema contable|sistemas tributarios|sistema de gestion de seguridad y salud|sistema de gestion de calidad|sistema de gestion ambiental|sistemas de refrigeracion|sistemas contra incendio|sistemas de informacion geografica)\b/g;
+const EXPLICIT_NON_IT_CAREER_RE =
+  /\b(marketing|comunicaciones|publicidad|diseno grafico|audiovisual|periodismo|relaciones publicas|contabilidad|contable|tributacion|tributaria|auditoria financiera|cuentas por pagar|cobranzas|tesoreria|derecho|abogado|legal|regulatorio|psicologia|recursos humanos|gestion humana|talento humano|bienestar social|seleccion de personal|remuneraciones|electricista|mecanico|mecanica automotriz|electrotecnia|soldador|todista|gasfiteria|albanil|textil|tintoreria|confeccion|patronaje|moda|odontologia|enfermeria|medicina|farmacia|nutricion|obstetricia|veterinaria|turismo|hoteleria|gastronomia|cocina|arquitectura de interiores|diseno de interiores|museologia|artes plastica|conservacion ambiental|trabajo social|docente|educacion)\b/;
+const GENAI_MEDIA_MARKETING_RE =
+  /\b(canva|capcut|midjourney|runway|elevenlabs|reels|tiktok|youtube shorts|creacion de contenidos|edicion de videos|diseno grafico|redes sociales|copies|guiones)\b/;
+const STRONG_TECH_TITLE_RE =
+  /\b(desarrollador|developer|software|backend|frontend|full ?stack|fullstack|mobile|android|ios|flutter|devops|sre|cloud|aws|azure|gcp|kubernetes|docker|data engineer|data analyst|data scientist|data science|ciencia de datos|ingenier[oa] de datos|analista de datos|business intelligence|bi|power bi|etl|machine learning|deep learning|ciberseguridad|cybersecurity|seguridad informatica|riesgo tecnologico|resiliencia operacional|auditoria (?:de )?sistemas|qa|quality assurance|testing de software|automatizacion de pruebas|tester|soporte ti|soporte tecnico|mesa de ayuda|help desk|it operations|it support|sysadmin|tecnologias? de (?:la )?informacion|infraestructura ti|redes y comunicaciones|programador|sistemas|ti|it|erp|sap|rpa|power platform|power automate|inteligencia artificial|automatizacion de procesos|bases? de datos)\b/;
+const STRONG_TECH_STACK_RE =
+  /\b(python|java|javascript|typescript|react|angular|vue|node ?js|nextjs|next js|c#|dotnet|net core|php|laravel|golang|elixir|rust|kotlin|swift|sql|sql server|postgresql|mysql|oracle|mongodb|nosql|bigquery|snowflake|databricks|microsoft fabric|pyspark|airflow|etl|power bi|power automate|power apps|looker studio|tableau|qlik|api rest|apis rest|postman|graphql|microservices|microservicios|git|github|gitlab|ci cd|jenkins|docker|kubernetes|terraform|linux|servicenow|jira|istqb|selenium|jmeter|sonarqube|uipath|blue prism|automation anywhere|rpa|sap abap|sap basis|active directory|vmware|cisco|fortinet|siem|iso 27001|nist|owasp|pentesting)\b/g;
+const CORE_DEV_DATA_ENG_STACK_RE =
+  /\b(python|java|javascript|typescript|react|angular|node ?js|c#|dotnet|php|golang|elixir|rust|sql|sql server|postgresql|mysql|mongodb|databricks|microsoft fabric|pyspark|airflow|etl|docker|kubernetes|git|istqb|selenium|sonarqube|api rest|apis rest|linux|uipath|rpa)\b/g;
+
+/**
+ * Evaluates whether a listing matches Ingeniería de Sistemas / Ingeniería de Software
+ * (or closely aligned IT / Data / Cloud / Security / QA roles) based primarily on its full description.
+ */
+export function isSystemsSoftwareRelevant(
+  title?: string | null,
+  rawDescription?: string | null,
+  source?: string | null
+): boolean {
+  const cleanDesc = stripDescriptionBoilerplate(rawDescription);
+  const titleNorm = normalizeText(title).replace(FALSE_SYSTEMS_PHRASES_RE, ' ');
+  const descNorm = normalizeText(cleanDesc).replace(FALSE_SYSTEMS_PHRASES_RE, ' ');
+  const combined = `${titleNorm} ${descNorm}`.trim();
+
+  if (
+    SENIOR_MANAGEMENT_TITLE_RE.test(titleNorm) ||
+    /\b(engineer ii|specialist)\b/.test(titleNorm)
+  ) {
+    return false;
+  }
+
+  const hasExplicitCsCareer = EXPLICIT_CS_SW_CAREER_RE.test(combined);
+  const nonItTitle = EXPLICIT_NON_IT_CAREER_RE.test(titleNorm);
+  const nonItDesc = EXPLICIT_NON_IT_CAREER_RE.test(descNorm);
+  const techTitle = STRONG_TECH_TITLE_RE.test(titleNorm);
+  const stackHits = new Set(combined.match(STRONG_TECH_STACK_RE) ?? []);
+  const coreEngHits = new Set(combined.match(CORE_DEV_DATA_ENG_STACK_RE) ?? []);
+
+  if (
+    GENAI_MEDIA_MARKETING_RE.test(combined) &&
+    nonItDesc &&
+    !/\b(ing(?:enieria)? (?:de )?sistemas|ing(?:enieria)? (?:de )?software|ing(?:enieria)? informatica|computacion|desarrollo de software|programacion|sql)\b/.test(
+      combined
+    )
+  ) {
+    return false;
+  }
+
+  if (nonItTitle) {
+    if (hasExplicitCsCareer && /\b(area sistemas|sistemas|ti|software|datos)\b/.test(titleNorm)) {
+      return true;
+    }
+    if (/\b(auditoria de sistemas|rpa)\b/.test(titleNorm)) {
+      return true;
+    }
+    return false;
+  }
+
+  const acadMatch = descNorm.match(
+    /(formacion academica|carreras? profesional(?:es)?|carrera(?:s)? de|estudiante(?:s)? (?:universitario(?:s)? |tecnico o universitario )?(?:de|desde|en|entre|del|o (?:recien )?egresad)[^.]{0,180}|egresad[oa](?:s)? (?:de|en)[^.]{0,180})/
+  );
+  const acadSnippet = acadMatch?.[1] ?? '';
+  const acadHasCs = EXPLICIT_CS_SW_CAREER_RE.test(acadSnippet);
+
+  if (hasExplicitCsCareer) {
+    if (
+      !techTitle &&
+      stackHits.size === 0 &&
+      !/\b(software|programacion|base(?:s)? de datos|sql|python|power bi|redes|servidores|soporte tecnico|mesa de ayuda|desarrollo web|analisis de datos|ciberseguridad|infraestructura|automatizacion|sistemas? informatico)\b/.test(
+        combined
+      )
+    ) {
+      return false;
+    }
+    if (
+      GENAI_MEDIA_MARKETING_RE.test(combined) &&
+      coreEngHits.size === 0 &&
+      !/\b(ing(?:enieria)? (?:de )?sistemas|ing(?:enieria)? (?:de )?software|computacion|informatica)\b/.test(
+        combined
+      )
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  if (nonItDesc && coreEngHits.size < 2 && !techTitle) {
+    return false;
+  }
+
+  if (coreEngHits.size >= 3 || (coreEngHits.size >= 2 && techTitle)) {
+    return true;
+  }
+
+  if (acadSnippet && !acadHasCs) {
+    return /\b(desarrollador|developer|software|backend|frontend|full ?stack|data engineer|devops|ciberseguridad|infraestructura ti|sistemas)\b/.test(
+      titleNorm
+    );
+  }
+
+  if (
+    /\b(desarrollador|developer|software|backend|frontend|full ?stack|devops|cloud|data analyst|data engineer|data scientist|ciberseguridad|seguridad informatica|riesgo tecnologico|resiliencia operacional|soporte ti|mesa de ayuda|help desk|it operations|it support|sysadmin|tecnologias? de la informacion|programador|qa|tester|sistemas|ti)\b/.test(
+      titleNorm
+    )
+  ) {
+    if (
+      stackHits.size >= 1 ||
+      /\b(software|ti|it service|it operations|tecnolog|redes|servidores|riesgos ti|ciber|cloud|base(?:s)? de datos|desarrollo web|documentacion tecnica|quality assurance|pruebas funcionales)\b/.test(
+        combined
+      )
+    ) {
+      return true;
+    }
+    if (
+      source === 'cvmatcher' &&
+      /\b(practica|practicante|egresado|asistente|analista|operador)\b/.test(titleNorm) &&
+      /\b(sistemas|auditoria de sistemas|inteligencia artificial|bases? de datos|datos|seguridad de sistemas|negocios it|soporte ti)\b/.test(
+        titleNorm
+      )
+    ) {
+      return true;
+    }
+  }
+
+  return stackHits.size >= 2 && !nonItDesc;
 }
 
 /**

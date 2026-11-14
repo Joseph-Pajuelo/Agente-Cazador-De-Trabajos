@@ -133,14 +133,7 @@ export function isHistoricalRowEligible(
   if (roleLevel !== 'unknown') {
     return true;
   }
-  const evaluations = row.job_evaluations as
-    | Array<Record<string, unknown>>
-    | Record<string, unknown>
-    | undefined;
-  const ev = Array.isArray(evaluations)
-    ? evaluations.find((e) => !e.profile_id) || evaluations[0]
-    : evaluations;
-  return ev?.is_pre_professional === true || includeDiscardedAi;
+  return includeDiscardedAi;
 }
 
 /**
@@ -161,18 +154,11 @@ export function buildHistoricalSupabaseQuery(
     queryBuilder = queryBuilder.eq('job_evaluations.is_unrealistic_or_smoke', false);
   }
 
-  // 2. Role levels filter & unknown refinement
+  // 2. Role levels filter (strict match; never silently pull 'unknown' into 'preprofesional')
   const hasRoleLevels = filters.roleLevels && filters.roleLevels.length > 0;
-  const includesPreprof = hasRoleLevels && filters.roleLevels.includes('preprofesional');
 
   if (hasRoleLevels) {
-    if (includesPreprof) {
-      // Query selected role levels plus 'unknown' to refine via is_pre_professional
-      const levelsToQuery = Array.from(new Set([...filters.roleLevels, 'unknown']));
-      queryBuilder = queryBuilder.in('role_level', levelsToQuery);
-    } else {
-      queryBuilder = queryBuilder.in('role_level', filters.roleLevels);
-    }
+    queryBuilder = queryBuilder.in('role_level', filters.roleLevels);
   }
 
   // 3. Min score filter
@@ -617,16 +603,18 @@ export async function getInitialRadarData(
       }
     }
 
-    // 4. Map to JobSummary array and compute lastUpdated
+    // 4. Map to JobSummary array, filter DB-marked off-career rows, and compute lastUpdated
     let maxTimestamp: string | null = null;
-    const jobs: JobSummary[] = listings.map((row: Record<string, unknown>) => {
-      const ts = row.created_at as string | undefined;
-      if (ts && (!maxTimestamp || ts > maxTimestamp)) {
-        maxTimestamp = ts;
-      }
-      const userState = userStateMap.get(Number(row.id)) || null;
-      return mapRowToJobSummary(row, userState);
-    });
+    const jobs: JobSummary[] = listings
+      .map((row: Record<string, unknown>) => {
+        const ts = row.created_at as string | undefined;
+        if (ts && (!maxTimestamp || ts > maxTimestamp)) {
+          maxTimestamp = ts;
+        }
+        const userState = userStateMap.get(Number(row.id)) || null;
+        return mapRowToJobSummary(row, userState);
+      })
+      .filter((job) => job.user_status !== null || job.engine !== 'off_career_filter');
 
     return {
       jobs,

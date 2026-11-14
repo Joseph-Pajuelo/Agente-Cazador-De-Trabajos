@@ -467,24 +467,35 @@ describe('Task 4: Supabase Auth, Middleware, Queries & Server Actions', () => {
         },
       ];
 
-      // Setup mock Supabase client
+      // Setup mock Supabase client honoring captured role_level .in() SQL filter
       const rangeCalls: { start: number; end: number }[] = [];
+      const inRoleLevelsCalls: string[][] = [];
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const createBuilder = (): any => {
+        let roleFilter: string[] | null = null;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const b: any = {
           select: vi.fn(() => b),
           is: vi.fn(() => b),
           eq: vi.fn(() => b),
           gte: vi.fn(() => b),
-          in: vi.fn(() => b),
+          in: vi.fn((col: string, vals: string[]) => {
+            if (col === 'role_level') {
+              roleFilter = vals;
+              inRoleLevelsCalls.push(vals);
+            }
+            return b;
+          }),
           not: vi.fn(() => b),
           or: vi.fn(() => b),
           textSearch: vi.fn(() => b),
           order: vi.fn(() => b),
           range: vi.fn((start: number, end: number) => {
             rangeCalls.push({ start, end });
-            const slice = mockDbRows.slice(start, end + 1);
+            const filtered = roleFilter
+              ? mockDbRows.filter((r) => roleFilter!.includes(r.role_level))
+              : mockDbRows;
+            const slice = filtered.slice(start, end + 1);
             return Promise.resolve({ data: slice, error: null });
           }),
         };
@@ -512,14 +523,16 @@ describe('Task 4: Supabase Auth, Middleware, Queries & Server Actions', () => {
           includeDiscardedAi: false,
         });
 
-        // Eligible items: index 0 (101) and index 3 (104). Index 4 (105) triggers hasMore.
+        // SQL must query strictly ['preprofesional'] without leaking 'unknown'
+        expect(inRoleLevelsCalls[0]).toEqual(['preprofesional']);
+
+        // Filtered items: [101, 104, 107] -> Page 1 slice (0..2) returns 101, 104 with nextOffset = 2
         expect(page1.jobs).toHaveLength(2);
         expect(page1.jobs.map((j) => j.id)).toEqual([101, 104]);
         expect(page1.hasMore).toBe(true);
-        // nextOffset must be index 3 + 1 = 4
-        expect(page1.nextOffset).toBe(4);
+        expect(page1.nextOffset).toBe(2);
 
-        // Page 2: Request limit = 2 starting at nextOffset (4)
+        // Page 2: Request limit = 2 starting at nextOffset (2)
         const page2 = await searchHistoricalJobs({
           query: '',
           limit: 2,
@@ -528,9 +541,9 @@ describe('Task 4: Supabase Auth, Middleware, Queries & Server Actions', () => {
           includeDiscardedAi: false,
         });
 
-        // Eligible items starting from index 4: index 4 (105) and index 6 (107).
-        expect(page2.jobs).toHaveLength(2);
-        expect(page2.jobs.map((j) => j.id)).toEqual([105, 107]);
+        // Strict 'preprofesional' matching skips all 'unknown' rows (102, 103, 105, 106)
+        expect(page2.jobs).toHaveLength(1);
+        expect(page2.jobs.map((j) => j.id)).toEqual([107]);
 
         // CRITICAL: ZERO duplicate job IDs between page 1 and page 2
         const page1Ids = new Set(page1.jobs.map((j) => j.id));

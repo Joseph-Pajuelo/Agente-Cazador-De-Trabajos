@@ -31,6 +31,7 @@ def normalize_listing_enrichment(listing: JobListing) -> Dict[str, Any]:
     Precomputa metadatos enriquecidos de empleador y fecha normalizada para almacenamiento y búsqueda rápida.
     """
     from domain.companies import resolve_employer
+    from domain.normalization import normalize_job_metadata
     from domain.ranking import parse_job_date
 
     emp = resolve_employer(listing.company, listing.title, listing.raw_description)
@@ -42,12 +43,22 @@ def normalize_listing_enrichment(listing: JobListing) -> Dict[str, Any]:
     dt = parse_job_date(listing.published_at)
     pub_date = dt.strftime("%Y-%m-%d") if dt else None
 
+    norm_meta = normalize_job_metadata(
+        title=listing.title,
+        company=listing.company,
+        location=listing.location,
+        modality=listing.modality.value if hasattr(listing.modality, "value") else str(listing.modality),
+        salary=listing.salary,
+        raw_description=listing.raw_description,
+    )
+
     return {
         "resolved_brand_key": brand_key,
         "resolved_via_agency": via_agency,
         "agency_clue": agency_clue,
         "sector_hint": sector,
         "published_date": pub_date,
+        **norm_meta,
     }
 
 

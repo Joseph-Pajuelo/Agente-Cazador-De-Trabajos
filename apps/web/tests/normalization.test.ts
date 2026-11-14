@@ -7,6 +7,7 @@ import {
   EnglishLevel,
   normalizeJobMetadata,
   extractLimaDistrictAndZone,
+  isSystemsSoftwareRelevant,
   JobNormalizationInput,
 } from '../src/lib/domain/jobNormalization';
 
@@ -366,6 +367,90 @@ describe('Lima Job Normalization Extractor', () => {
         raw_description: 'Apoyo en el área técnica y documentación.',
       });
       expect(resUnknown.role_level).toBe('unknown');
+
+      // Discrepancy regression cases (FINANTY PRO, Software Developer Intern Profesional, Egresados + Convenio)
+      const resProParen = normalizeJobMetadata({
+        title: 'Practicante PRO (profesional) de Inteligencia y Automatización',
+        raw_description:
+          'Egresado(a) universitario(a) en Ingeniería de Sistemas. Ofrecemos Convenio de Prácticas Profesionales según ley.',
+      });
+      expect(resProParen.role_level).toBe('profesional');
+
+      const resInternPro = normalizeJobMetadata({
+        title: 'Software Developer - Intern - (Practicas Profesionales - 40 horas semanales)',
+        raw_description: 'Egresado de Ingeniería de Software o Sistemas. Prácticas profesionales.',
+      });
+      expect(resInternPro.role_level).toBe('profesional');
+
+      const resEgresadoConvenio = normalizeJobMetadata({
+        title: 'Practicante de Procesamiento de Datos',
+        raw_description:
+          'REQUISITOS: Egresado(a) o Bachiller de Ingeniería de Software o Sistemas. BENEFICIOS: Convenio de prácticas.',
+      });
+      expect(resEgresadoConvenio.role_level).toBe('profesional');
+
+      // Past preprofesional experience + practicas.pe WhatsApp footer must NOT override Profesional role level
+      const resProWithFooter = normalizeJobMetadata({
+        title: 'Practicante de Gestión de Proyectos',
+        raw_description:
+          'Modalidad de prácticas: Profesional\nFormación: Egresado de Ingeniería de Sistemas. Deseable experiencia previa como practicante preprofesional.\nTe sugerimos:\n¿Eres estudiante? Únete a nuestro canal de WhatsApp sobre prácticas PRE-PROFESIONALES',
+      });
+      expect(resProWithFooter.role_level).toBe('profesional');
+
+      // Ley 29733 Datos Personales boilerplate must NOT skew category to Datos, BI & IA
+      const resLeyDatos = normalizeJobMetadata({
+        title: 'Practicante Pre Profesional de Sistemas',
+        raw_description:
+          'Estudiante de 8vo ciclo de Ingeniería de Sistemas. Soporte técnico, redes y servidores TI.\nAl postular autorizas el tratamiento de datos personales conforme a la Ley N° 29733 de Protección de Datos Personales.',
+      });
+      expect(resLeyDatos.role_level).toBe('preprofesional');
+      expect(resLeyDatos.category).toBe('Sistemas & TI');
+    });
+  });
+
+  describe('Systems & Software Career Relevance Filter', () => {
+    it('keeps Sistemas/Software/Data/TI roles and rejects Marketing/GenAI media, Contabilidad, and Senior/Management roles', () => {
+      expect(
+        isSystemsSoftwareRelevant(
+          'Practicante Pre Profesional de Desarrollo Backend',
+          'Estudiante de 8vo ciclo de Ingeniería de Sistemas o Software. Python, SQL, APIs REST.',
+          'computrabajo'
+        )
+      ).toBe(true);
+
+      expect(
+        isSystemsSoftwareRelevant(
+          'PRACTICANTE DE RESILIENCIA OPERACIONAL Y RIESGO TECNOLÓGICO',
+          'Estudiante de los últimos ciclos de Ingeniería de Sistemas, Informática o afines. Gestión de riesgos TI y agentes de IA.',
+          'linkedin'
+        )
+      ).toBe(true);
+
+      // Biznes Sac marketing digital content with GenAI tools (must reject!)
+      expect(
+        isSystemsSoftwareRelevant(
+          'Practicante de Creación de contenidos digitales con Inteligencia Artificial',
+          'Estudiante de últimos ciclos o egresado(a) de Marketing, Comunicaciones, Publicidad, Diseño, Audiovisual. ChatGPT, Claude, Canva, CapCut, Midjourney, TikTok, Reels.',
+          'computrabajo'
+        )
+      ).toBe(false);
+
+      // Accounting, Electrician, and Senior roles (must reject!)
+      expect(
+        isSystemsSoftwareRelevant(
+          'Practicante de Contabilidad Tributaria',
+          'Estudiante de Contabilidad. Concar, PDT y declaraciones SUNAT.',
+          'bumeran'
+        )
+      ).toBe(false);
+
+      expect(
+        isSystemsSoftwareRelevant(
+          'SUB GTE AUDITORIA DE TI Y CIBERSEGURIDAD',
+          'Auditar procesos relacionados con TI y Ciberseguridad. Pentesting.',
+          'linkedin'
+        )
+      ).toBe(false);
     });
   });
 

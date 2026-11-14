@@ -34,6 +34,7 @@ const sampleJobs: JobSummary[] = [
     resolved_via_agency: false,
     agency_clue: '',
     sector_hint: 'banca',
+    role_level: 'preprofesional',
     is_pre_professional: true,
     is_unrealistic_or_smoke: false,
     final_ranking_score: 92.5,
@@ -56,6 +57,7 @@ const sampleJobs: JobSummary[] = [
     resolved_via_agency: true,
     agency_clue: 'importante entidad financiera del grupo Intercorp',
     sector_hint: 'banca',
+    role_level: 'preprofesional',
     is_pre_professional: true,
     is_unrealistic_or_smoke: false,
     final_ranking_score: 84.0,
@@ -145,6 +147,7 @@ const sampleJobs: JobSummary[] = [
     resolved_via_agency: false,
     agency_clue: '',
     sector_hint: 'banca',
+    role_level: 'preprofesional',
     is_pre_professional: true,
     is_unrealistic_or_smoke: false,
     final_ranking_score: 88.0,
@@ -334,6 +337,7 @@ describe('Workspace State & Pure Reducer Helpers', () => {
           resolved_via_agency: false,
           agency_clue: '',
           sector_hint: null,
+          role_level: 'preprofesional',
           is_pre_professional: true,
           is_unrealistic_or_smoke: false,
           final_ranking_score: 75.0,
@@ -356,6 +360,7 @@ describe('Workspace State & Pure Reducer Helpers', () => {
           resolved_via_agency: false,
           agency_clue: '',
           sector_hint: null,
+          role_level: 'preprofesional',
           is_pre_professional: true,
           is_unrealistic_or_smoke: false,
           final_ranking_score: 74.0,
@@ -535,6 +540,7 @@ describe('Workspace State & Pure Reducer Helpers', () => {
         resolved_via_agency: false,
         agency_clue: '',
         sector_hint: null,
+        role_level: 'preprofesional',
         is_pre_professional: true,
         user_status: null,
       },
@@ -554,6 +560,7 @@ describe('Workspace State & Pure Reducer Helpers', () => {
         resolved_via_agency: false,
         agency_clue: '',
         sector_hint: null,
+        role_level: 'preprofesional',
         is_pre_professional: true,
         user_status: 'to_apply',
       },
@@ -573,6 +580,7 @@ describe('Workspace State & Pure Reducer Helpers', () => {
         resolved_via_agency: false,
         agency_clue: '',
         sector_hint: null,
+        role_level: 'preprofesional',
         is_pre_professional: true,
         user_status: null,
       },
@@ -592,6 +600,7 @@ describe('Workspace State & Pure Reducer Helpers', () => {
         resolved_via_agency: false,
         agency_clue: '',
         sector_hint: null,
+        role_level: 'preprofesional',
         is_pre_professional: true,
         user_status: null,
       },
@@ -611,6 +620,7 @@ describe('Workspace State & Pure Reducer Helpers', () => {
         resolved_via_agency: false,
         agency_clue: '',
         sector_hint: null,
+        role_level: 'preprofesional',
         is_pre_professional: true,
         user_status: null,
       },
@@ -773,6 +783,7 @@ describe('Workspace State & Pure Reducer Helpers', () => {
       resolved_via_agency: false,
       agency_clue: '',
       sector_hint: null,
+      role_level: 'preprofesional',
       is_pre_professional: true,
       is_unrealistic_or_smoke: true,
     };
@@ -815,9 +826,10 @@ describe('Workspace State & Pure Reducer Helpers', () => {
       expect(isJobEligibleForRoleLevels(smokeJob, [], true)).toBe(true);
     });
 
-    it('handles unknown role level depending on is_pre_professional and includeDiscardedAi', () => {
+    it('strictly excludes unknown role_level from preprofesional even when includeDiscardedAi is true, allowing unknown only when roleLevels is empty', () => {
       expect(isJobEligibleForRoleLevels(unknownJobNotPre, ['preprofesional'], false)).toBe(false);
-      expect(isJobEligibleForRoleLevels(unknownJobNotPre, ['preprofesional'], true)).toBe(true);
+      expect(isJobEligibleForRoleLevels(unknownJobNotPre, ['preprofesional'], true)).toBe(false);
+      expect(isJobEligibleForRoleLevels(unknownJobNotPre, [], false)).toBe(true);
     });
 
     it('allows all non-smoke levels when roleLevels is empty', () => {
@@ -1127,6 +1139,54 @@ describe('Workspace State & Pure Reducer Helpers', () => {
       expect(eligible).toBe(true);
       expect(spy).not.toHaveBeenCalled();
       spy.mockRestore();
+    });
+
+    it('excludes DB-flagged off_career_filter rows even when includeDiscardedAi is true unless user_status exists', () => {
+      const offCareerJob: JobSummary = {
+        id: 1002,
+        deduplication_hash: 'off-1002',
+        source: 'computrabajo',
+        title: 'Practicante de Creación de contenidos digitales con Inteligencia Artificial',
+        company: 'Biznes Sac',
+        location: 'La Victoria, Lima',
+        modality: 'Híbrido',
+        url: 'https://ejemplo.pe/1002',
+        salary: null,
+        published_at: null,
+        published_date: '2026-11-12',
+        resolved_brand_key: null,
+        resolved_via_agency: false,
+        agency_clue: '',
+        sector_hint: null,
+        role_level: 'unknown',
+        is_pre_professional: false,
+        is_unrealistic_or_smoke: true,
+        engine: 'off_career_filter',
+      };
+      const trackedLegacyJob: JobSummary = {
+        ...offCareerJob,
+        id: 1003,
+        deduplication_hash: 'off-1003',
+        user_status: 'to_apply',
+      };
+
+      const resAllRoles = filterAndSortWorkspaceJobs(
+        [offCareerJob, trackedLegacyJob],
+        {
+          ...DEFAULT_WORKSPACE_FILTERS,
+          crmTab: 'todas',
+          roleLevels: [],
+          includeDiscardedAi: true,
+        },
+        fixedNow
+      );
+      expect(resAllRoles.jobs.map((j) => j.id)).toEqual([1003]);
+
+      const counts = computeCrmCounts([offCareerJob, trackedLegacyJob], {
+        includeDiscardedAi: true,
+      });
+      expect(counts.todas).toBe(1);
+      expect(counts.to_apply).toBe(1);
     });
   });
 });

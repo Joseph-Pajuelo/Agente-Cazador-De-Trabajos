@@ -295,6 +295,16 @@ class JobMatcherAI:
 
         skills_str = ", ".join(matching[:4]) if matching else "ninguna competencia clave explícita"
 
+        from domain.normalization import extract_role_level
+
+        detected_role_level = extract_role_level(listing.title, listing.raw_description)
+        is_pre = detected_role_level == "preprofesional"
+        if not is_pre and not reject_reason:
+            reject_reason = (
+                f"Nivel laboral detectado: {detected_role_level} "
+                "(solo preprofesional es apto para estudiante de 8vo ciclo)."
+            )
+
         status_note = "Apta para 8vo ciclo (preprofesional)." if is_pre else f"Descartada: {reject_reason or 'No es preprofesional.'}"
         verdict = (
             f"{status_note} Coincide en {len(matching)} competencias clave ({skills_str}). "

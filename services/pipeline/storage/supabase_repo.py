@@ -67,6 +67,14 @@ class SupabaseRepository(JobRepository):
             "resolved_via_agency": bool(enrichment["resolved_via_agency"]),
             "agency_clue": enrichment["agency_clue"] or "",
             "sector_hint": enrichment["sector_hint"],
+            "district": enrichment["district"],
+            "lima_zone": enrichment["lima_zone"],
+            "category": enrichment["category"],
+            "role_level": enrichment["role_level"],
+            "english_required": enrichment["english_required"],
+            "english_level": enrichment["english_level"],
+            "salary_min": enrichment["salary_min"],
+            "salary_max": enrichment["salary_max"],
             "status": "PENDING_EVALUATION",
         }
 
