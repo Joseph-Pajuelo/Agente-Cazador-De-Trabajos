@@ -226,10 +226,11 @@ export function AuthModal({
         } else {
           setSuccessMessage(res.message || '¡Operación exitosa!');
           if (res.hasSession) {
+            router.refresh();
             setTimeout(() => {
               handleClose();
               router.refresh();
-            }, mode === 'signup' ? 800 : 600);
+            }, 250);
           }
         }
       }

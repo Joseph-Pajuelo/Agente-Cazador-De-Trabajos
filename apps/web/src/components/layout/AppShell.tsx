@@ -183,29 +183,29 @@ export function AppShell({
             className="flex items-center gap-3 transition-opacity hover:opacity-90"
             aria-label="Job Hunter Agent - Inicio"
           >
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#1E3A8A] text-white font-bold shadow-xs">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#2563EB] to-[#1D4ED8] text-white font-black text-base shadow-sm">
               JH
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
-                <span className="font-bold text-slate-900 tracking-tight text-base truncate">
+                <span className="font-extrabold text-slate-900 tracking-tight text-lg truncate">
                   Job Hunter
                 </span>
               </div>
-              <p className="text-[11px] text-slate-500 font-medium truncate">
+              <p className="text-xs text-[#2563EB] font-semibold truncate">
                 Prácticas Lima
               </p>
             </div>
           </Link>
-          <div className="mt-2.5 inline-flex items-center gap-1 rounded bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-800 border border-blue-200/60">
-            <Sparkles className="h-2.5 w-2.5 text-blue-700" />
+          <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-[#2563EB] border border-blue-200/80">
+            <Sparkles className="h-3 w-3 text-[#2563EB]" />
             <span>Radar Inteligente</span>
           </div>
         </div>
 
         {/* Navigation Links */}
         <nav
-          className="flex-1 p-3 space-y-1 overflow-y-auto"
+          className="flex-1 p-3.5 space-y-1.5 overflow-y-auto"
           aria-label="Navegación principal"
         >
           {navLinks.map((link) => {
@@ -218,23 +218,29 @@ export function AppShell({
               <Link
                 key={link.href}
                 href={link.href}
-                className={`flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
+                className={`flex items-center justify-between rounded-xl px-3.5 py-3 text-[15px] font-semibold transition-all ${
                   isActive
-                    ? 'bg-[#EFF6FF] text-[#1E3A8A] font-semibold shadow-2xs'
-                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                    ? 'bg-[#2563EB] text-white shadow-sm'
+                    : 'text-slate-700 hover:bg-blue-50/60 hover:text-[#2563EB]'
                 }`}
                 aria-current={isActive ? 'page' : undefined}
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <Icon
-                    className={`h-4 w-4 shrink-0 ${
-                      isActive ? 'text-[#1E3A8A]' : 'text-slate-500'
+                    className={`h-5 w-5 shrink-0 ${
+                      isActive ? 'text-white' : 'text-slate-500'
                     }`}
                   />
                   <span className="truncate">{link.label}</span>
                 </div>
                 {typeof link.badge === 'number' && (
-                  <span className="ml-2 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 px-1.5 text-[11px] font-bold text-emerald-800">
+                  <span
+                    className={`ml-2 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-xs font-bold ${
+                      isActive
+                        ? 'bg-white text-[#2563EB]'
+                        : 'bg-blue-100 text-[#2563EB]'
+                    }`}
+                  >
                     {link.badge}
                   </span>
                 )}
@@ -244,26 +250,26 @@ export function AppShell({
         </nav>
 
         {/* Timestamp Footer */}
-        <div className="px-4 py-2 text-[11px] text-slate-500 border-t border-slate-100">
+        <div className="px-4 py-2.5 text-xs text-slate-500 font-medium border-t border-slate-100">
           <span className="block truncate">{formattedUpdate}</span>
         </div>
 
         {/* User Account Panel at bottom */}
-        <div className="p-3 border-t border-[#E2E8F0] bg-slate-50/60">
+        <div className="p-3.5 border-t border-[#E2E8F0] bg-gradient-to-br from-blue-50/60 to-indigo-50/40">
           {user ? (
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2.5 min-w-0">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[#1E3A8A] text-xs font-bold border border-blue-200">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#2563EB] text-white text-sm font-bold shadow-xs">
                   {userInitial}
                 </div>
                 <div className="min-w-0">
                   <span
-                    className="block text-xs font-semibold text-slate-800 truncate"
+                    className="block text-sm font-bold text-slate-900 truncate"
                     title={user.email || 'Usuario'}
                   >
                     {user.email || 'Usuario'}
                   </span>
-                  <span className="block text-[10px] text-emerald-700 font-medium">
+                  <span className="block text-[11px] text-emerald-700 font-semibold">
                     Conectado
                   </span>
                 </div>
@@ -281,7 +287,7 @@ export function AppShell({
             </div>
           ) : (
             <div className="flex flex-col gap-2">
-              <div className="text-[11px] text-slate-500">
+              <div className="text-xs font-semibold text-slate-600">
                 Modo Explorador (Público)
               </div>
               <button
@@ -289,9 +295,9 @@ export function AppShell({
                 onClick={() =>
                   onOpenAuthModal ? onOpenAuthModal() : router.push('/login')
                 }
-                className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-[#1E3A8A] px-3 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-blue-800 transition-colors"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#2563EB] px-3.5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-blue-700 transition-colors cursor-pointer"
               >
-                <LogIn className="h-3.5 w-3.5 text-blue-200" />
+                <LogIn className="h-4 w-4 text-blue-100" />
                 <span>Ingresar</span>
               </button>
             </div>

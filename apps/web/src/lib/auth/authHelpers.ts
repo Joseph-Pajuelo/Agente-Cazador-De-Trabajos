@@ -554,6 +554,20 @@ export async function performPasswordAuth(params: {
         };
       }
 
+      if (typeof supabase.auth.signInWithPassword === 'function') {
+        const signInAttempt = await supabase.auth.signInWithPassword({
+          email: params.email,
+          password: params.password,
+        });
+        if (!signInAttempt.error && signInAttempt.data?.session) {
+          return {
+            success: true,
+            hasSession: true,
+            message: '¡Cuenta creada e iniciada exitosamente! Redirigiendo...',
+          };
+        }
+      }
+
       return {
         success: true,
         hasSession: false,

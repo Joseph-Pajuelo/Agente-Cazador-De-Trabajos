@@ -505,14 +505,14 @@ export function FilterSidebar({
       {/* ------------------------------------------------------------- */}
       {/* Top Header: Title, Total Count & Reset Actions                */}
       {/* ------------------------------------------------------------- */}
-      <div className="p-4 border-b border-[#E2E8F0] bg-slate-50/50 sticky top-0 z-10 backdrop-blur-xs">
+      <div className="p-4 border-b border-[#E2E8F0] bg-white sticky top-0 z-10 backdrop-blur-xs">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="font-bold text-slate-900 text-sm tracking-tight">
+            <span className="font-extrabold text-slate-900 text-lg tracking-tight">
               Filtros
             </span>
             {totalCount !== undefined && (
-              <span className="inline-flex items-center rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+              <span className="inline-flex items-center rounded-full bg-blue-50 border border-blue-200 px-2.5 py-0.5 text-xs font-bold text-[#2563EB]">
                 {totalCount}
               </span>
             )}
@@ -522,7 +522,7 @@ export function FilterSidebar({
               <button
                 type="button"
                 onClick={handleRestoreProfile}
-                className="text-[11px] text-[#1E3A8A] hover:underline font-medium"
+                className="text-xs text-[#2563EB] hover:underline font-semibold"
                 title="Restaurar distritos configurados en tu perfil"
               >
                 Restaurar perfil
@@ -532,10 +532,10 @@ export function FilterSidebar({
               <button
                 type="button"
                 onClick={handleClearAll}
-                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50 transition-colors"
+                className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold text-rose-700 hover:bg-rose-50 transition-colors"
                 title="Restablecer todos los filtros"
               >
-                <RotateCcw className="h-3 w-3" />
+                <RotateCcw className="h-3.5 w-3.5" />
                 <span>Limpiar</span>
               </button>
             )}
@@ -547,21 +547,21 @@ export function FilterSidebar({
           <label htmlFor="filter-search-input" className="sr-only">
             Buscar por cargo, empresa o tecnología
           </label>
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400 pointer-events-none" />
+          <Search className="absolute left-3.5 top-3 h-4 w-4 text-slate-400 pointer-events-none" />
           <input
             id="filter-search-input"
             type="text"
             value={filters.search}
             onChange={(e) => onChange({ ...filters, search: e.target.value })}
-            placeholder="Cargo, empresa, tecnología..."
-            className="w-full rounded-xl border border-slate-200 bg-white pl-9 pr-8 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:border-[#1E3A8A] focus:outline-none focus:ring-1 focus:ring-[#1E3A8A]"
+            placeholder="Buscar empleo, empresa o skill..."
+            className="w-full rounded-xl border border-slate-200 bg-white pl-10 pr-8 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#2563EB] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20"
           />
           {filters.search && (
             <button
               type="button"
               onClick={() => onChange({ ...filters, search: '' })}
               aria-label="Limpiar búsqueda"
-              className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
+              className="absolute right-2.5 top-3 text-slate-400 hover:text-slate-600"
             >
               <X className="h-4 w-4" />
             </button>
@@ -628,16 +628,16 @@ export function FilterSidebar({
       {/* 1. Distritos de Lima Accordion                                */}
       {/* ------------------------------------------------------------- */}
       <details open className="border-b border-slate-200 group">
-        <summary className="flex items-center justify-between p-4 cursor-pointer select-none font-semibold text-xs tracking-wider uppercase text-slate-700 hover:text-slate-900 transition-colors">
+        <summary className="flex items-center justify-between p-4 cursor-pointer select-none font-bold text-[15px] text-[#2563EB] hover:text-blue-700 transition-colors">
           <span className="flex items-center gap-2">
-            <MapPin className="h-3.5 w-3.5 text-[#1E3A8A]" />
+            <MapPin className="h-4 w-4 text-[#2563EB]" />
             <span>Distritos de Lima</span>
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="text-[11px] text-slate-500 font-normal">
+            <span className="text-xs text-[#2563EB] font-semibold">
               {filters.includedDistricts.length > 0
-                ? `${filters.includedDistricts.length} sel.`
-                : 'Todos'}
+                ? `(${filters.includedDistricts.length})`
+                : 'Lima'}
             </span>
             <ChevronDown className="h-4 w-4 text-slate-500 details-chevron" />
           </span>
@@ -805,9 +805,9 @@ export function FilterSidebar({
         <div className="flex items-center justify-between">
           <label
             htmlFor="filter-english-switch"
-            className="flex items-center gap-2 font-semibold text-xs tracking-wider uppercase text-slate-700 cursor-pointer select-none"
+            className="flex items-center gap-2 font-bold text-[15px] text-slate-900 cursor-pointer select-none"
           >
-            <Globe className="h-3.5 w-3.5 text-[#1E3A8A]" />
+            <Globe className="h-4 w-4 text-[#2563EB]" />
             <span>Requiere inglés</span>
           </label>
           <input
@@ -828,7 +828,7 @@ export function FilterSidebar({
         {/* Level pills when English switch enabled */}
         {filters.englishOnly && (
           <div className="mt-3 pt-3 border-t border-slate-100">
-            <span className="block text-[11px] font-medium text-slate-500 mb-1.5">
+            <span className="block text-xs font-medium text-slate-500 mb-1.5">
               Nivel requerido:
             </span>
             <div className="flex flex-wrap gap-1.5">
@@ -847,7 +847,7 @@ export function FilterSidebar({
                     onClick={() => toggleEnglishLevel(lvl)}
                     className={`rounded-lg px-2.5 py-1 text-xs font-semibold border transition-colors ${
                       isSelected
-                        ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
+                        ? 'bg-[#2563EB] text-white border-[#2563EB]'
                         : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
                     }`}
                   >
@@ -864,10 +864,11 @@ export function FilterSidebar({
       {/* 3. Fecha de Publicación Accordion                             */}
       {/* ------------------------------------------------------------- */}
       <details open className="border-b border-slate-200 group">
-        <summary className="flex items-center justify-between p-4 cursor-pointer select-none font-semibold text-xs tracking-wider uppercase text-slate-700 hover:text-slate-900 transition-colors">
+        <summary className="flex items-center justify-between p-4 cursor-pointer select-none font-bold text-[15px] text-[#2563EB] hover:text-blue-700 transition-colors">
           <span className="flex items-center gap-2">
-            <Calendar className="h-3.5 w-3.5 text-[#1E3A8A]" />
+            <Calendar className="h-4 w-4 text-[#2563EB]" />
             <span>Fecha de publicación</span>
+            <span className="text-xs font-bold text-[#2563EB]">(1)</span>
           </span>
           <ChevronDown className="h-4 w-4 text-slate-500 details-chevron" />
         </summary>
@@ -887,9 +888,9 @@ export function FilterSidebar({
             return (
               <label
                 key={`age-${days ?? 'hist'}`}
-                className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs cursor-pointer select-none transition-colors ${
+                className={`flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm cursor-pointer select-none transition-colors ${
                   isSelected
-                    ? 'bg-blue-50 font-semibold text-[#1E3A8A]'
+                    ? 'bg-blue-50 font-bold text-[#2563EB]'
                     : 'text-slate-700 hover:bg-slate-50'
                 }`}
               >
@@ -898,7 +899,7 @@ export function FilterSidebar({
                   name="workspace-max-age"
                   checked={isSelected}
                   onChange={() => onChange({ ...filters, maxAgeDays: days })}
-                  className="text-[#1E3A8A] focus:ring-[#1E3A8A]"
+                  className="h-4 w-4 text-[#2563EB] focus:ring-[#2563EB]"
                 />
                 <span>{label}</span>
               </label>
@@ -911,10 +912,15 @@ export function FilterSidebar({
       {/* 4. Categoría Accordion                                        */}
       {/* ------------------------------------------------------------- */}
       <details open className="border-b border-slate-200 group">
-        <summary className="flex items-center justify-between p-4 cursor-pointer select-none font-semibold text-xs tracking-wider uppercase text-slate-700 hover:text-slate-900 transition-colors">
+        <summary className="flex items-center justify-between p-4 cursor-pointer select-none font-bold text-[15px] text-slate-900 hover:text-[#2563EB] transition-colors">
           <span className="flex items-center gap-2">
-            <Layers className="h-3.5 w-3.5 text-[#1E3A8A]" />
+            <Layers className="h-4 w-4 text-[#2563EB]" />
             <span>Categoría</span>
+            {filters.categories.length > 0 && (
+              <span className="text-xs font-bold text-[#2563EB]">
+                ({filters.categories.length})
+              </span>
+            )}
           </span>
           <ChevronDown className="h-4 w-4 text-slate-500 details-chevron" />
         </summary>
@@ -927,23 +933,23 @@ export function FilterSidebar({
             return (
               <label
                 key={cat}
-                className={`flex items-center justify-between rounded-lg px-2.5 py-1.5 text-xs cursor-pointer select-none transition-colors ${
+                className={`flex items-center justify-between rounded-lg px-2.5 py-1.5 text-sm cursor-pointer select-none transition-colors ${
                   isSelected
-                    ? 'bg-blue-50 text-blue-900 font-semibold'
+                    ? 'bg-blue-50 text-[#2563EB] font-bold'
                     : 'text-slate-700 hover:bg-slate-50'
                 }`}
               >
-                <div className="flex items-center gap-2 min-w-0">
+                <div className="flex items-center gap-2.5 min-w-0">
                   <input
                     type="checkbox"
                     checked={isSelected}
                     onChange={() => toggleCategory(cat)}
-                    className="rounded border-slate-300 text-[#1E3A8A] focus:ring-[#1E3A8A]"
+                    className="h-4 w-4 rounded border-slate-300 text-[#2563EB] focus:ring-[#2563EB]"
                   />
                   <span className="truncate">{cat}</span>
                 </div>
                 {count !== undefined && count > 0 && (
-                  <span className="text-[10px] text-slate-600 font-mono ml-1">
+                  <span className="text-xs text-slate-500 font-mono ml-1">
                     ({count})
                   </span>
                 )}
@@ -957,10 +963,15 @@ export function FilterSidebar({
       {/* 5. Nivel Laboral & Descarte IA Accordion                       */}
       {/* ------------------------------------------------------------- */}
       <details open className="border-b border-slate-200 group">
-        <summary className="flex items-center justify-between p-4 cursor-pointer select-none font-semibold text-xs tracking-wider uppercase text-slate-700 hover:text-slate-900 transition-colors">
+        <summary className="flex items-center justify-between p-4 cursor-pointer select-none font-bold text-[15px] text-[#2563EB] hover:text-blue-700 transition-colors">
           <span className="flex items-center gap-2">
-            <Briefcase className="h-3.5 w-3.5 text-[#1E3A8A]" />
+            <Briefcase className="h-4 w-4 text-[#2563EB]" />
             <span>Nivel laboral</span>
+            {filters.roleLevels.length > 0 && (
+              <span className="text-xs font-bold text-[#2563EB]">
+                ({filters.roleLevels.length})
+              </span>
+            )}
           </span>
           <ChevronDown className="h-4 w-4 text-slate-500 details-chevron" />
         </summary>
@@ -977,13 +988,15 @@ export function FilterSidebar({
             return (
               <label
                 key={role}
-                className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none"
+                className={`flex items-center gap-2.5 text-sm cursor-pointer select-none ${
+                  isSelected ? 'font-bold text-[#2563EB]' : 'text-slate-700'
+                }`}
               >
                 <input
                   type="checkbox"
                   checked={isSelected}
                   onChange={() => toggleRoleLevel(role)}
-                  className="rounded border-slate-300 text-[#1E3A8A] focus:ring-[#1E3A8A]"
+                  className="h-4 w-4 rounded border-slate-300 text-[#2563EB] focus:ring-[#2563EB]"
                 />
                 <span>{label}</span>
               </label>
@@ -1017,9 +1030,9 @@ export function FilterSidebar({
       {/* 6. Modalidad Accordion                                        */}
       {/* ------------------------------------------------------------- */}
       <details className="border-b border-slate-200 group">
-        <summary className="flex items-center justify-between p-4 cursor-pointer select-none font-semibold text-xs tracking-wider uppercase text-slate-700 hover:text-slate-900 transition-colors">
+        <summary className="flex items-center justify-between p-4 cursor-pointer select-none font-bold text-[15px] text-slate-900 hover:text-[#2563EB] transition-colors">
           <span className="flex items-center gap-2">
-            <Sliders className="h-3.5 w-3.5 text-[#1E3A8A]" />
+            <Sliders className="h-4 w-4 text-[#2563EB]" />
             <span>Modalidad</span>
           </span>
           <ChevronDown className="h-4 w-4 text-slate-500 details-chevron" />
@@ -1031,13 +1044,13 @@ export function FilterSidebar({
             return (
               <label
                 key={mod}
-                className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none"
+                className="flex items-center gap-2.5 text-sm text-slate-700 cursor-pointer select-none"
               >
                 <input
                   type="checkbox"
                   checked={isSelected}
                   onChange={() => toggleModality(mod)}
-                  className="rounded border-slate-300 text-[#1E3A8A] focus:ring-[#1E3A8A]"
+                  className="h-4 w-4 rounded border-slate-300 text-[#2563EB] focus:ring-[#2563EB]"
                 />
                 <span>{mod}</span>
               </label>
@@ -1050,9 +1063,9 @@ export function FilterSidebar({
       {/* 7. Rango Salarial (S/) Accordion                              */}
       {/* ------------------------------------------------------------- */}
       <details className="border-b border-slate-200 group">
-        <summary className="flex items-center justify-between p-4 cursor-pointer select-none font-semibold text-xs tracking-wider uppercase text-slate-700 hover:text-slate-900 transition-colors">
+        <summary className="flex items-center justify-between p-4 cursor-pointer select-none font-bold text-[15px] text-slate-900 hover:text-[#2563EB] transition-colors">
           <span className="flex items-center gap-2">
-            <Banknote className="h-3.5 w-3.5 text-[#1E3A8A]" />
+            <Banknote className="h-4 w-4 text-[#2563EB]" />
             <span>Rango salarial (S/)</span>
           </span>
           <ChevronDown className="h-4 w-4 text-slate-500 details-chevron" />
@@ -1072,9 +1085,9 @@ export function FilterSidebar({
             return (
               <label
                 key={key}
-                className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs cursor-pointer select-none transition-colors ${
+                className={`flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm cursor-pointer select-none transition-colors ${
                   isSelected
-                    ? 'bg-blue-50 font-semibold text-[#1E3A8A]'
+                    ? 'bg-blue-50 font-bold text-[#2563EB]'
                     : 'text-slate-700 hover:bg-slate-50'
                 }`}
               >
@@ -1085,7 +1098,7 @@ export function FilterSidebar({
                   onChange={() =>
                     onChange({ ...filters, salaryFilter: key as SalaryFilterKey })
                   }
-                  className="text-[#1E3A8A] focus:ring-[#1E3A8A]"
+                  className="h-4 w-4 text-[#2563EB] focus:ring-[#2563EB]"
                 />
                 <span>{label}</span>
               </label>
@@ -1098,9 +1111,9 @@ export function FilterSidebar({
       {/* 8. Portal de Origen Accordion                                 */}
       {/* ------------------------------------------------------------- */}
       <details className="border-b border-slate-200 group">
-        <summary className="flex items-center justify-between p-4 cursor-pointer select-none font-semibold text-xs tracking-wider uppercase text-slate-700 hover:text-slate-900 transition-colors">
+        <summary className="flex items-center justify-between p-4 cursor-pointer select-none font-bold text-[15px] text-slate-900 hover:text-[#2563EB] transition-colors">
           <span className="flex items-center gap-2">
-            <Globe className="h-3.5 w-3.5 text-[#1E3A8A]" />
+            <Globe className="h-4 w-4 text-[#2563EB]" />
             <span>Portal de origen</span>
           </span>
           <ChevronDown className="h-4 w-4 text-slate-500 details-chevron" />
@@ -1112,13 +1125,13 @@ export function FilterSidebar({
             return (
               <label
                 key={key}
-                className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none"
+                className="flex items-center gap-2.5 text-sm text-slate-700 cursor-pointer select-none"
               >
                 <input
                   type="checkbox"
                   checked={isSelected}
                   onChange={() => toggleSource(key)}
-                  className="rounded border-slate-300 text-[#1E3A8A] focus:ring-[#1E3A8A]"
+                  className="h-4 w-4 rounded border-slate-300 text-[#2563EB] focus:ring-[#2563EB]"
                 />
                 <span>{label}</span>
               </label>
@@ -1131,9 +1144,9 @@ export function FilterSidebar({
       {/* 9. Afinidad IA Mínima Accordion                               */}
       {/* ------------------------------------------------------------- */}
       <details className="border-b border-slate-200 group">
-        <summary className="flex items-center justify-between p-4 cursor-pointer select-none font-semibold text-xs tracking-wider uppercase text-slate-700 hover:text-slate-900 transition-colors">
+        <summary className="flex items-center justify-between p-4 cursor-pointer select-none font-bold text-[15px] text-slate-900 hover:text-[#2563EB] transition-colors">
           <span className="flex items-center gap-2">
-            <Sparkles className="h-3.5 w-3.5 text-[#1E3A8A]" />
+            <Sparkles className="h-4 w-4 text-[#2563EB]" />
             <span>Afinidad IA mínima</span>
           </span>
           <ChevronDown className="h-4 w-4 text-slate-500 details-chevron" />

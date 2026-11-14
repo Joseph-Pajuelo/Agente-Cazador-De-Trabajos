@@ -160,10 +160,11 @@ function LoginForm() {
         } else {
           setSuccessMessage(res.message || '¡Operación exitosa!');
           if (res.hasSession) {
+            router.refresh();
             setTimeout(() => {
               router.push(safeNext);
               router.refresh();
-            }, mode === 'signup' ? 800 : 600);
+            }, 250);
           }
         }
       }

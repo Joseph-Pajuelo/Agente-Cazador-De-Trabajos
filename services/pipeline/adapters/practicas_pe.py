@@ -44,7 +44,11 @@ class PracticasPeAdapter(BaseJobAdapter):
         cleaned = " ".join(raw_header.split()).strip()
         
         if "convocatoria" in cleaned.lower():
-            parts = re.split(r"convocatoria\s+(?:para\s+|n[º°]?\s*\d+[-–]\d+\s*:\s*)?", cleaned, flags=re.IGNORECASE)
+            parts = re.split(
+                r"convocatoria\s+(?:(?:para|de)\s+|n[º°]?\s*\d+[-–]\d+\s*:\s*)?",
+                cleaned,
+                flags=re.IGNORECASE,
+            )
             if len(parts) >= 2:
                 company = parts[0].strip(": -–")
                 title = parts[1].strip(": -–")
@@ -59,6 +63,12 @@ class PracticasPeAdapter(BaseJobAdapter):
             company = "Empresa Confidencial"
             title = cleaned
 
+        title = re.sub(
+            r"^de\s+(?=(?:practicante|pr[aá]cticas|becario|asistente|analista|t[eé]cnico)\b)",
+            "",
+            title,
+            flags=re.IGNORECASE,
+        )
         # Limpiar sufijo 'en Lima' o similar
         title = re.sub(r"\s+en\s+Lima.*$", "", title, flags=re.IGNORECASE)
         # Limpiar empresa vacía

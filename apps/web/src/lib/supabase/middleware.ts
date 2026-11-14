@@ -38,6 +38,20 @@ export async function updateSession(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
 
+  // Forward Supabase Site URL fallback redirects (/?code=... or /?token_hash=...&type=...)
+  // directly to /auth/callback so email verification & recovery links always exchange tokens.
+  if (pathname !== '/auth/callback') {
+    const hasAuthCode = request.nextUrl.searchParams.has('code');
+    const hasOtpToken =
+      request.nextUrl.searchParams.has('token_hash') &&
+      request.nextUrl.searchParams.has('type');
+    if (hasAuthCode || hasOtpToken) {
+      const callbackUrl = request.nextUrl.clone();
+      callbackUrl.pathname = '/auth/callback';
+      return NextResponse.redirect(callbackUrl);
+    }
+  }
+
   if (!isSupabaseConfigured()) {
     const redirectUrl = shouldRedirectToLogin(pathname, false);
     if (redirectUrl) {

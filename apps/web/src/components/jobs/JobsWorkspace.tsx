@@ -710,7 +710,7 @@ export function JobsWorkspace({
             {/* Right Feed (1fr) */}
             <div className="space-y-4 min-w-0">
               {/* CRM Tabs bar */}
-              <div className="flex items-center gap-1 overflow-x-auto pb-1 border-b border-[#E2E8F0]">
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-2 border-b border-[#E2E8F0]">
                 {CRM_WORKSPACE_TABS.map((tab) => {
                   const isActive = filters.crmTab === tab.key;
                   const tabCount = counts[tab.countKey];
@@ -719,19 +719,19 @@ export function JobsWorkspace({
                       key={tab.key}
                       type="button"
                       onClick={() => setFilters((prev) => ({ ...prev, crmTab: tab.key }))}
-                      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                      className={`inline-flex items-center gap-2 whitespace-nowrap rounded-xl px-4 py-2 text-sm font-bold transition-all cursor-pointer ${
                         isActive
-                          ? 'bg-[#1E3A8A] text-white shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                          ? 'bg-[#2563EB] text-white shadow-sm'
+                          : 'bg-white text-slate-600 border border-slate-200 hover:bg-blue-50/60 hover:text-[#2563EB] hover:border-blue-200'
                       }`}
                       aria-pressed={isActive}
                     >
                       <span>{tab.label}</span>
                       <span
-                        className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                        className={`rounded-full px-2 py-0.5 text-xs font-extrabold ${
                           isActive
                             ? 'bg-white/20 text-white'
-                            : 'bg-slate-200/80 text-slate-700'
+                            : 'bg-slate-100 text-slate-700'
                         }`}
                       >
                         {tabCount}
@@ -743,14 +743,14 @@ export function JobsWorkspace({
 
               {/* Result summary and sort dropdown */}
               <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-                <div className="flex items-center gap-2 text-xs text-slate-600">
-                  <span className="font-semibold text-slate-900">
+                <div className="flex items-center gap-2 text-sm text-slate-600">
+                  <span className="font-bold text-slate-900 text-base">
                     {filteredJobs.length === 1
                       ? '1 vacante encontrada'
                       : `${filteredJobs.length} vacantes encontradas`}
                   </span>
                   {isHistorical && (
-                    <span className="rounded bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800 border border-amber-200">
+                    <span className="rounded-lg bg-amber-50 px-2.5 py-0.5 text-xs font-bold text-amber-800 border border-amber-200">
                       Histórico DB
                     </span>
                   )}
@@ -759,7 +759,7 @@ export function JobsWorkspace({
                 <div className="flex items-center gap-2">
                   <label
                     htmlFor="workspace-sort-select"
-                    className="text-xs text-slate-500 font-medium"
+                    className="text-sm text-slate-600 font-semibold"
                   >
                     Ordenar por:
                   </label>
@@ -772,7 +772,7 @@ export function JobsWorkspace({
                         sortBy: e.target.value as WorkspaceSortBy,
                       }))
                     }
-                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-2xs focus:border-blue-600 focus:outline-none"
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 shadow-2xs focus:border-[#2563EB] focus:outline-none"
                   >
                     <option value="modality_score">Afinidad + Modalidad</option>
                     <option value="score">Mayor afinidad</option>

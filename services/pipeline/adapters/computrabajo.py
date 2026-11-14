@@ -39,12 +39,18 @@ class ComputrabajoAdapter(BaseJobAdapter):
             if not link:
                 continue
             company_el = art.select_one("a[offer-grid-article-company-url]") or art.select_one("p a")
-            loc_el = art.select_one("p.fs16 span.mr10")
+            company_text = company_el.get_text(strip=True) if company_el else "Empresa confidencial"
+            location_text = "Lima"
+            for span in art.select("p.fs16 span.mr10, p.fs16 span"):
+                cand = span.get_text(strip=True)
+                if cand and cand != company_text and not re.match(r"^\d+([.,]\d+)?$", cand):
+                    location_text = cand
+                    break
             results.append({
                 "offer_id": art.get("data-id") or link["href"],
                 "title": link.get_text(strip=True),
-                "company": company_el.get_text(strip=True) if company_el else "Empresa confidencial",
-                "location": loc_el.get_text(strip=True) if loc_el else "Lima",
+                "company": company_text,
+                "location": location_text,
                 "url": BASE_URL + link["href"].split("#")[0],
             })
         return results

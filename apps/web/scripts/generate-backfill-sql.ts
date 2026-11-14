@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
 
 // @ts-expect-error Node 24 native TS execution requires explicit .ts extension
-import { normalizeJobMetadata, type NormalizedJobMetadata } from '../src/lib/domain/jobNormalization.ts';
+import { normalizeJobMetadata, cleanJobTitle, cleanJobLocation, extractModality, type NormalizedJobMetadata } from '../src/lib/domain/jobNormalization.ts';
 
 interface RawListingRow {
   id: number | string;
@@ -30,6 +30,9 @@ interface RawListingRow {
 
 interface ProcessedListing {
   id: number | string;
+  cleanedTitle: string;
+  cleanedLocation: string;
+  cleanedModality: string;
   metadata: NormalizedJobMetadata;
 }
 
@@ -311,6 +314,9 @@ function generateBatchedSql(processed: ProcessedListing[], batchSize: number): s
     const batch = processed.slice(i, i + batchSize);
     const valuesRows = batch.map((item) => {
       const id = typeof item.id === 'number' ? item.id : escapeSqlString(String(item.id));
+      const title = escapeSqlString(item.cleanedTitle);
+      const location = escapeSqlString(item.cleanedLocation);
+      const modality = escapeSqlString(item.cleanedModality);
       const district = escapeSqlString(item.metadata.district);
       const limaZone = escapeSqlString(item.metadata.lima_zone);
       const category = escapeSqlString(item.metadata.category);
@@ -322,11 +328,14 @@ function generateBatchedSql(processed: ProcessedListing[], batchSize: number): s
       const salMin = item.metadata.salary_min !== null ? item.metadata.salary_min : 'NULL';
       const salMax = item.metadata.salary_max !== null ? item.metadata.salary_max : 'NULL';
 
-      return `  (${id}, ${district}, ${limaZone}, ${category}, ${roleLevel}, ${engReq}, ${engLvl}, ${salMin}, ${salMax})`;
+      return `  (${id}, ${title}, ${location}, ${modality}, ${district}, ${limaZone}, ${category}, ${roleLevel}, ${engReq}, ${engLvl}, ${salMin}, ${salMax})`;
     });
 
     const updateSql = `UPDATE public.job_listings AS j
 SET
+  title = v.title::text,
+  location = v.location::text,
+  modality = v.modality::text,
   district = v.district::text,
   lima_zone = v.lima_zone::text,
   category = v.category::text,
@@ -337,7 +346,7 @@ SET
   salary_max = v.salary_max::integer
 FROM (VALUES
 ${valuesRows.join(',\n')}
-) AS v(id, district, lima_zone, category, role_level, english_required, english_level, salary_min, salary_max)
+) AS v(id, title, location, modality, district, lima_zone, category, role_level, english_required, english_level, salary_min, salary_max)
 WHERE j.id = v.id;
 `;
     statements.push(updateSql);
@@ -358,16 +367,29 @@ async function main(): Promise<void> {
   const rawListings = await fetchListings(options);
   console.log(`Fetched ${rawListings.length} listings.`);
 
-  const processed: ProcessedListing[] = rawListings.map((listing) => ({
-    id: listing.id,
-    metadata: normalizeJobMetadata({
-      title: listing.title,
-      location: listing.location,
+  const processed: ProcessedListing[] = rawListings.map((listing) => {
+    const cleanedTitle = cleanJobTitle(listing.title);
+    const cleanedModality = extractModality({
+      title: cleanedTitle,
       modality: listing.modality,
+      raw_description: listing.raw_description,
+    });
+    const metadata = normalizeJobMetadata({
+      title: cleanedTitle,
+      location: listing.location,
+      modality: cleanedModality,
       salary: listing.salary,
       raw_description: listing.raw_description,
-    }),
-  }));
+    });
+    const cleanedLocation = cleanJobLocation(listing.location, metadata.district);
+    return {
+      id: listing.id,
+      cleanedTitle,
+      cleanedLocation,
+      cleanedModality,
+      metadata,
+    };
+  });
 
   printSummaryStats(processed);
 

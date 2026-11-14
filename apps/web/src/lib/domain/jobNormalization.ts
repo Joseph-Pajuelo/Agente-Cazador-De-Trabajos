@@ -126,37 +126,54 @@ export function normalizeText(text?: string | null): string {
 interface DistrictRule {
   canonical: string;
   patterns: RegExp[];
+  acronyms?: RegExp[];
 }
 
 const DISTRICT_RULES: DistrictRule[] = [
   // Multi-word / specific districts first
   {
     canonical: 'Santiago de Surco',
-    patterns: [/\bsantiago de surco\b/, /\bsurco\b/],
+    patterns: [
+      /\bsantiago de surco\b/,
+      /\bsurco\b/,
+      /\bchacarilla\b/,
+      /\bmonterrico\b/,
+      /\bel polo\b/,
+    ],
   },
   {
     canonical: 'San Juan de Miraflores',
-    patterns: [/\bsan juan de miraflores\b/, /\bsjm\b/],
+    patterns: [/\bsan juan de miraflores\b/],
+    acronyms: [/\bsjm\b/],
   },
   {
     canonical: 'San Juan de Lurigancho',
-    patterns: [/\bsan juan de lurigancho\b/, /\bsjl\b/],
+    patterns: [/\bsan juan de lurigancho\b/],
+    acronyms: [/\bsjl\b/],
   },
   {
     canonical: 'Lurigancho - Chosica',
-    patterns: [/\blurigancho\b/, /\bchosica\b/],
+    patterns: [
+      /\blurigancho\b/,
+      /\bchosica\b/,
+      /\bsanta maria de huachipa\b/,
+      /\bhuachipa\b/,
+    ],
   },
   {
     canonical: 'San Martín de Porres',
-    patterns: [/\bsan martin de porres\b/, /\bsan martin de porras\b/, /\bsmp\b/],
+    patterns: [/\bsan martin de porres\b/, /\bsan martin de porras\b/],
+    acronyms: [/\bsmp\b/],
   },
   {
     canonical: 'Villa María del Triunfo',
-    patterns: [/\bvilla maria del triunfo\b/, /\bvmt\b/],
+    patterns: [/\bvilla maria del triunfo\b/],
+    acronyms: [/\bvmt\b/],
   },
   {
     canonical: 'Villa El Salvador',
-    patterns: [/\bvilla el salvador\b/, /\bves\b/],
+    patterns: [/\bvilla el salvador\b/],
+    acronyms: [/\bves\b/],
   },
   {
     canonical: 'Magdalena del Mar',
@@ -172,7 +189,13 @@ const DISTRICT_RULES: DistrictRule[] = [
   },
   {
     canonical: 'San Isidro',
-    patterns: [/\bsan isidro\b/],
+    patterns: [
+      /\bsan isidro\b/,
+      /\bsanhattan\b/,
+      /\bcamino real\b/,
+      /\bcanaval y moreyra\b/,
+      /\brivera navarrete\b/,
+    ],
   },
   {
     canonical: 'San Borja',
@@ -196,7 +219,7 @@ const DISTRICT_RULES: DistrictRule[] = [
   },
   {
     canonical: 'La Victoria',
-    patterns: [/\bla victoria\b/],
+    patterns: [/\bla victoria\b/, /\bsanta catalina\b/, /\bgamarra\b/],
   },
   {
     canonical: 'Lima Centro',
@@ -273,12 +296,19 @@ const DISTRICT_RULES: DistrictRule[] = [
 /**
  * Searches for a canonical district in normalized text.
  */
-function findDistrictInText(normText: string): string | null {
+function findDistrictInText(normText: string, allowAcronyms = true): string | null {
   if (!normText) return null;
   for (const rule of DISTRICT_RULES) {
     for (const pattern of rule.patterns) {
       if (pattern.test(normText)) {
         return rule.canonical;
+      }
+    }
+    if (allowAcronyms && rule.acronyms) {
+      for (const acr of rule.acronyms) {
+        if (acr.test(normText)) {
+          return rule.canonical;
+        }
       }
     }
   }
@@ -332,16 +362,16 @@ export function extractLimaDistrictAndZone(input: {
   const normModality = normalizeText(input.modality);
 
   // 1. Prioritize physical district in location (if not noise/generic)
-  let foundDistrict = findDistrictInText(cleanedLoc);
+  let foundDistrict = findDistrictInText(cleanedLoc, true);
 
   // 2. Then check title
   if (!foundDistrict) {
-    foundDistrict = findDistrictInText(normTitle);
+    foundDistrict = findDistrictInText(normTitle, true);
   }
 
-  // 3. Then check description
+  // 3. Then check description (skip 3-letter acronyms like "ves" which mean "you see" in Spanish)
   if (!foundDistrict) {
-    foundDistrict = findDistrictInText(normDesc);
+    foundDistrict = findDistrictInText(normDesc, false);
   }
 
   if (foundDistrict) {
@@ -518,9 +548,17 @@ export function extractRoleLevel(
   const isTitleTraineeJr = /\b(trainee|junior|\bjr\b|entry level|joven talento)\b/.test(normTitle);
   if (isTitleTraineeJr) return 'trainee_junior';
 
-  // 2. Description checks for preprofesional vs profesional vs trainee_junior
+  // 2. Explicit structured modality headers in description (e.g. Practicas.pe "Modalidad de prácticas: Pre-Profesional")
+  if (/\bmodalidad de practicas\s+pre\s*profesional\b/.test(normDesc)) {
+    return 'preprofesional';
+  }
+  if (/\bmodalidad de practicas\s+profesional\b/.test(normDesc)) {
+    return 'profesional';
+  }
+
+  // 3. Description checks for preprofesional vs profesional vs trainee_junior
   const hasDescPre =
-    /\b(preprofesional|pre profesional|pre-profesional|practicas pre|practica pre|estudiante universitario|estudiantes universitarios|ultimos ciclos|cursando|estudiante de|alumnos de)\b/.test(
+    /\b(preprofesional|pre profesional|pre-profesional|practicas pre|practica pre|estudiante universitario|estudiantes universitarios|ultimos ciclos|cursando|estudiante de|alumnos de|convenio de practicas|6to|7mo|8vo|9no|sexto ciclo|septimo ciclo|octavo ciclo|noveno ciclo)\b/.test(
       normDesc
     );
 
@@ -535,9 +573,91 @@ export function extractRoleLevel(
 
   if (hasDescPre && !hasDescPro) return 'preprofesional';
   if (hasDescPro && !hasDescPre) return 'profesional';
+  if (hasDescPre && hasDescPro) {
+    // Mixed pre/pro description ("estudiantes de últimos ciclos o recién egresados"):
+    return 'preprofesional';
+  }
   if (hasDescTraineeJr) return 'trainee_junior';
 
   return 'unknown';
+}
+
+/**
+ * Cleans scraper prefix artifacts from job titles (e.g., "de Practicante de ..." -> "Practicante de ...").
+ */
+export function cleanJobTitle(title?: string | null): string {
+  if (!title) return '';
+  let cleaned = title.trim();
+  cleaned = cleaned.replace(/^convocatoria\s+(?:para|de)\s+/i, '');
+  cleaned = cleaned.replace(
+    /^de\s+(?=(?:practicante|pr[aá]cticas|becario|asistente|analista|t[eé]cnico|auxiliar|programa)\b)/i,
+    ''
+  );
+  if (cleaned.length > 1) {
+    cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  }
+  return cleaned;
+}
+
+/**
+ * Cleans scraper numeric rating noise (e.g., CompuTrabajo "4,3") from location display string.
+ */
+export function cleanJobLocation(
+  rawLocation?: string | null,
+  district?: string | null
+): string {
+  const trimmed = (rawLocation || '').trim();
+  if (!trimmed || /^\d+([.,]\d+)?$/.test(trimmed)) {
+    if (district === 'Remoto') return 'Remoto, Lima';
+    if (district && district !== 'Lima Metropolitana') {
+      return `${district}, Lima`;
+    }
+    return 'Lima, Perú';
+  }
+  return trimmed;
+}
+
+/**
+ * Infers modality ("Remoto", "Híbrido", "Presencial") when raw modality is unspecified.
+ */
+export function extractModality(input: {
+  title?: string | null;
+  modality?: string | null;
+  raw_description?: string | null;
+}): string {
+  const rawMod = (input.modality || '').trim();
+  const normMod = normalizeText(rawMod);
+  if (normMod === 'remoto') return 'Remoto';
+  if (normMod === 'hibrido') return 'Híbrido';
+  if (normMod === 'presencial') return 'Presencial';
+
+  const normTitle = normalizeText(input.title);
+  const normDesc = normalizeText(input.raw_description);
+  const combined = `${normTitle} ${normDesc}`;
+
+  if (
+    /\b(hibrido|presencial y remoto|remoto y presencial|semipresencial|semi presencial|modalidad mixta)\b/.test(
+      combined
+    )
+  ) {
+    return 'Híbrido';
+  }
+  if (
+    /\b(remoto|teletrabajo|home office)\b/.test(normTitle) ||
+    /\b(100 remoto|trabajo remoto|modalidad remoto|modalidad teletrabajo|home office|desde casa)\b/.test(
+      normDesc
+    )
+  ) {
+    return 'Remoto';
+  }
+  if (
+    /\b(presencial)\b/.test(normTitle) ||
+    /\b(trabajo presencial|modalidad presencial|100 presencial|en oficina)\b/.test(normDesc)
+  ) {
+    return 'Presencial';
+  }
+
+  return rawMod || 'No especificado';
 }
 
 /**
