@@ -20,6 +20,10 @@ class PracticasPeAdapter(BaseJobAdapter):
         "https://www.practicas.pe/profesionales-preprofesionales-ingenieria-de-sistemas-lima-18-15.html",
         "https://www.practicas.pe/profesionales-preprofesionales-computacion-lima-12-15.html",
         "https://www.practicas.pe/pre-profesional-region-lima-15.html",
+        "https://www.practicas.pe/profesionales-preprofesionales-ingenieria-informatica-lima-19-15.html",
+        "https://www.practicas.pe/profesionales-preprofesionales-ingenieria-de-software-lima-59-15.html",
+        "https://www.practicas.pe/profesionales-preprofesionales-estadistica-lima-15-15.html",
+        "https://www.practicas.pe/profesionales-preprofesionales-ingenieria-industrial-lima-17-15.html",
     ]
 
     def __init__(self):

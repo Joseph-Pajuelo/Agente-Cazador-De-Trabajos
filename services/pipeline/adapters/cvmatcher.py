@@ -24,7 +24,9 @@ class CVMatcherAdapter(BaseJobAdapter):
     def __init__(self, keywords: List[str] | None = None):
         super().__init__(name="CVMatcher")
         # CVMatcher busca por área, así que quitamos la palabra "practicante" del query
-        self.keywords = [k.replace("practicante", "").strip() for k in (keywords or SEARCH_KEYWORDS)]
+        base_kw = [k.replace("practicante", "").replace("preprofesional", "").strip() for k in (keywords or SEARCH_KEYWORDS)]
+        extra_kw = ["practica", "practicante", "sistemas", "datos", "software", "ti", "ingenieria", "analista"]
+        self.keywords = list(dict.fromkeys([k for k in (*base_kw, *extra_kw) if k]))
 
     @staticmethod
     def parse_search_results(html: str) -> List[Dict]:

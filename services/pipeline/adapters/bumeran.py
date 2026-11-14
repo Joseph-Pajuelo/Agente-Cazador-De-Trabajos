@@ -103,7 +103,7 @@ class BumeranAdapter(BaseJobAdapter):
                     time.sleep(self.request_delay)
                     resp = client.post(
                         API_URL,
-                        params={"pageSize": 15, "page": 0, "sort": "RECIENTES"},
+                        params={"pageSize": 30, "page": 0, "sort": "RECIENTES"},
                         json={"query": query},
                     )
                     if resp.status_code != 200:

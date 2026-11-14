@@ -30,6 +30,7 @@ export interface AppShellProps {
   lastUpdated?: string | null;
   mobileFilterTrigger?: React.ReactNode;
   onOpenAuthModal?: () => void;
+  onLogoClick?: () => void;
   children: React.ReactNode;
 }
 
@@ -39,13 +40,66 @@ export function AppShell({
   lastUpdated,
   mobileFilterTrigger,
   onOpenAuthModal,
+  onLogoClick,
   children,
 }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
 
+  const [activeUser, setActiveUser] = React.useState<{
+    id: string;
+    email?: string | null;
+  } | null>(user);
   const [isSigningOut, setIsSigningOut] = React.useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    setActiveUser(user);
+  }, [user]);
+
+  React.useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    let mounted = true;
+    try {
+      const supabase = createClient();
+      if (!supabase?.auth) return;
+      if (typeof supabase.auth.getUser === 'function') {
+        supabase.auth
+          .getUser()
+          .then((res) => {
+            if (mounted && res?.data?.user) {
+              setActiveUser({
+                id: res.data.user.id,
+                email: res.data.user.email,
+              });
+            }
+          })
+          .catch(() => {});
+      }
+      const subResult =
+        typeof supabase.auth.onAuthStateChange === 'function'
+          ? supabase.auth.onAuthStateChange((event, session) => {
+              if (!mounted) return;
+              if (session?.user) {
+                setActiveUser({
+                  id: session.user.id,
+                  email: session.user.email,
+                });
+              } else if (event === 'SIGNED_OUT') {
+                setActiveUser(null);
+              }
+            })
+          : null;
+      return () => {
+        mounted = false;
+        subResult?.data?.subscription?.unsubscribe?.();
+      };
+    } catch {
+      return () => {
+        mounted = false;
+      };
+    }
+  }, []);
 
   const dialogRef = React.useRef<HTMLDialogElement>(null);
   const pointerDownOutsideRef = React.useRef(false);
@@ -82,12 +136,32 @@ export function AppShell({
     try {
       const supabase = createClient();
       await supabase.auth.signOut();
+      setActiveUser(null);
       closeDrawer();
       router.refresh();
     } catch (err) {
       console.error('Error signing out:', err);
     } finally {
       setIsSigningOut(false);
+    }
+  };
+
+  const handleLogoNavigation = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    closeDrawer();
+    onLogoClick?.();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('jobhunter:reset-home'));
+    }
+    if (pathname === '/') {
+      e.preventDefault();
+      router.push('/');
+      if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
+        try {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        } catch {
+          window.scrollTo(0, 0);
+        }
+      }
     }
   };
 
@@ -163,9 +237,9 @@ export function AppShell({
   ];
 
   const userInitial = React.useMemo(() => {
-    if (!user?.email) return 'U';
-    return user.email[0].toUpperCase();
-  }, [user?.email]);
+    if (!activeUser?.email) return 'U';
+    return activeUser.email[0].toUpperCase();
+  }, [activeUser?.email]);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-900 flex flex-col lg:flex-row">
@@ -180,15 +254,16 @@ export function AppShell({
         <div className="p-5 border-b border-[#E2E8F0]">
           <Link
             href="/"
-            className="flex items-center gap-3 transition-opacity hover:opacity-90"
-            aria-label="Job Hunter Agent - Inicio"
+            onClick={handleLogoNavigation}
+            className="group flex items-center gap-3 rounded-xl p-1 -m-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/40 transition-all duration-150 ease-out hover:opacity-90 active:scale-[0.98]"
+            aria-label="Job Hunter Agent - Ir a la pantalla principal"
           >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#2563EB] to-[#1D4ED8] text-white font-black text-base shadow-sm">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#2563EB] to-[#1D4ED8] text-white font-black text-base shadow-sm group-hover:shadow-md transition-shadow">
               JH
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
-                <span className="font-extrabold text-slate-900 tracking-tight text-lg truncate">
+                <span className="font-extrabold text-slate-900 tracking-tight text-lg truncate group-hover:text-[#2563EB] transition-colors">
                   Job Hunter
                 </span>
               </div>
@@ -256,7 +331,7 @@ export function AppShell({
 
         {/* User Account Panel at bottom */}
         <div className="p-3.5 border-t border-[#E2E8F0] bg-gradient-to-br from-blue-50/60 to-indigo-50/40">
-          {user ? (
+          {activeUser ? (
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2.5 min-w-0">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#2563EB] text-white text-sm font-bold shadow-xs">
@@ -265,9 +340,9 @@ export function AppShell({
                 <div className="min-w-0">
                   <span
                     className="block text-sm font-bold text-slate-900 truncate"
-                    title={user.email || 'Usuario'}
+                    title={activeUser.email || 'Usuario'}
                   >
-                    {user.email || 'Usuario'}
+                    {activeUser.email || 'Usuario'}
                   </span>
                   <span className="block text-[11px] text-emerald-700 font-semibold">
                     Conectado
@@ -322,10 +397,11 @@ export function AppShell({
           </button>
           <Link
             href="/"
-            className="flex items-center gap-2"
-            aria-label="Job Hunter Agent"
+            onClick={handleLogoNavigation}
+            className="flex items-center gap-2 rounded-lg p-1 -m-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/40 transition-transform active:scale-[0.98]"
+            aria-label="Job Hunter Agent - Ir a la pantalla principal"
           >
-            <div className="flex h-7 w-7 items-center justify-center rounded bg-[#1E3A8A] text-white text-xs font-bold shadow-2xs">
+            <div className="flex h-7 w-7 items-center justify-center rounded bg-[#2563EB] text-white text-xs font-bold shadow-2xs">
               JH
             </div>
             <span className="font-bold text-slate-900 text-sm tracking-tight">
@@ -336,13 +412,13 @@ export function AppShell({
 
         <div className="flex items-center gap-2">
           {mobileFilterTrigger && <div>{mobileFilterTrigger}</div>}
-          {!user && (
+          {!activeUser && (
             <button
               type="button"
               onClick={() =>
                 onOpenAuthModal ? onOpenAuthModal() : router.push('/login')
               }
-              className="inline-flex items-center gap-1 rounded-md bg-[#1E3A8A] px-2.5 py-1 text-xs font-semibold text-white shadow-2xs hover:bg-blue-800 transition-colors"
+              className="inline-flex items-center gap-1 rounded-md bg-[#2563EB] px-2.5 py-1 text-xs font-semibold text-white shadow-2xs hover:bg-blue-800 transition-colors"
             >
               <LogIn className="h-3 w-3" />
               <span>Ingresar</span>
@@ -433,7 +509,7 @@ export function AppShell({
 
           {/* Drawer Bottom User Panel */}
           <div className="border-t border-slate-100 p-4 bg-slate-50">
-            {user ? (
+            {activeUser ? (
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5 min-w-0">
                   <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[#1E3A8A] text-xs font-bold">
@@ -441,7 +517,7 @@ export function AppShell({
                   </div>
                   <div className="min-w-0">
                     <span className="block text-xs font-medium text-slate-800 truncate max-w-[130px]">
-                      {user.email || 'Usuario'}
+                      {activeUser.email || 'Usuario'}
                     </span>
                     <span className="block text-[10px] text-emerald-700">
                       Conectado
@@ -479,7 +555,9 @@ export function AppShell({
       {/* ------------------------------------------------------------- */}
       {/* Main Content Viewport                                         */}
       {/* ------------------------------------------------------------- */}
-      <div className="flex-1 min-w-0 flex flex-col">{children}</div>
+      <div key={pathname} className="flex-1 min-w-0 flex flex-col section-enter">
+        {children}
+      </div>
     </div>
   );
 }

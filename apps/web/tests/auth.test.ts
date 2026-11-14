@@ -497,5 +497,35 @@ describe('authHelpers', () => {
         password: 'new-strong-password',
       });
     });
+
+    it('falls back to signInWithPassword when signup returns User already registered', async () => {
+      const mockClient = {
+        auth: {
+          signUp: vi.fn().mockResolvedValue({
+            data: { user: null, session: null },
+            error: { message: 'User already registered' },
+          }),
+          signInWithPassword: vi.fn().mockResolvedValue({
+            data: {
+              user: { id: 'u-123', email: 'existing@uni.edu.pe' },
+              session: { access_token: 'tok' },
+            },
+            error: null,
+          }),
+        },
+      } as unknown as Parameters<typeof performPasswordAuth>[0]['client'];
+
+      const res = await performPasswordAuth({
+        mode: 'signup',
+        email: 'existing@uni.edu.pe',
+        password: 'secretpassword',
+        origin: 'http://localhost:3000',
+        client: mockClient,
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.hasSession).toBe(true);
+      expect(res.user).toEqual({ id: 'u-123', email: 'existing@uni.edu.pe' });
+    });
   });
 });

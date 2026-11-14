@@ -84,7 +84,7 @@ def get_adapters():
 
 
 def run_pipeline(
-    limit_per_source: int = 8,
+    limit_per_source: int = 40,
     min_score: float = 50.0,
     generate_pdf: bool = True,
     selected_adapters: Optional[List[str]] = None,
@@ -176,7 +176,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Job Hunter & ATS Tailor Agent Pipeline")
-    parser.add_argument("--limit", type=int, default=8, help="Límite de vacantes por portal")
+    parser.add_argument("--limit", type=int, default=40, help="Límite de vacantes por portal")
     parser.add_argument("--min-score", type=float, default=50.0, help="Puntaje mínimo recomendado")
     parser.add_argument("--no-pdf", action="store_true", help="Omitir la generación de reporte PDF")
     parser.add_argument("--reevaluate-all", action="store_true", help="Re-evaluar todas las vacantes del catálogo")

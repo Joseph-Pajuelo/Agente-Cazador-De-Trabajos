@@ -13,6 +13,17 @@ SEARCH_KEYWORDS = [
     "practicante inteligencia artificial",
     "practicante tecnologia",
     "practicante ingenieria de sistemas",
+    "practicante ti",
+    "practicante analista de datos",
+    "practicante soporte ti",
+    "practicante ciberseguridad",
+    "practicante cloud",
+    "practicante qa",
+    "practicante programador",
+    "practicante base de datos",
+    "practicante transformacion digital",
+    "practicante proyectos ti",
+    "practicante power bi",
 ]
 
 SEARCH_LOCATION = "Lima, Peru"

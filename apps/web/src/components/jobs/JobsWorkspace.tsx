@@ -72,6 +72,15 @@ export function JobsWorkspace({
 }: JobsWorkspaceProps) {
   const [, startTransition] = useTransition();
 
+  const [activeUser, setActiveUser] = React.useState<{
+    id: string;
+    email?: string | null;
+  } | null>(user);
+
+  React.useEffect(() => {
+    setActiveUser(user);
+  }, [user]);
+
   // 1. URL & Filter Hydration
   const initialParsed = React.useMemo(
     () => parseFiltersFromSearchParams(initialSearchParams ?? {}, profileExcludedDistricts),
@@ -371,7 +380,7 @@ export function JobsWorkspace({
   );
 
   const handleQuickCrmChange = (job: JobSummary, status: CrmStatus) => {
-    if (!canMutateCrm(user)) {
+    if (!canMutateCrm(activeUser)) {
       setAuthPrompt(
         'Inicia sesión o crea tu cuenta para guardar y clasificar vacantes en tu radar personal.'
       );
@@ -437,7 +446,7 @@ export function JobsWorkspace({
   const handleSaveNotes = async (notes: string): Promise<boolean> => {
     if (!selectedJob) return false;
 
-    if (!canMutateCrm(user)) {
+    if (!canMutateCrm(activeUser)) {
       setAuthPrompt(
         'Inicia sesión para guardar notas personales sobre esta convocatoria.'
       );
@@ -506,10 +515,31 @@ export function JobsWorkspace({
     setFilters((prev) => clearFilterCriteria(prev));
   };
 
-  const handleResetToDefaults = () => {
+  const handleResetToDefaults = React.useCallback(() => {
     setHasExplicitExclParam(false);
     setFilters((prev) => resetFilterCriteriaToDefaults(prev, profileExcludedDistricts));
-  };
+  }, [profileExcludedDistricts]);
+
+  const handleResetHome = React.useCallback(() => {
+    setSelectedJobId(null);
+    setHasExplicitExclParam(false);
+    setFilters((prev) => ({
+      ...resetFilterCriteriaToDefaults(prev, profileExcludedDistricts),
+      crmTab: 'activas',
+    }));
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', '/');
+    }
+  }, [profileExcludedDistricts]);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onResetEvent = () => handleResetHome();
+    window.addEventListener('jobhunter:reset-home', onResetEvent);
+    return () => {
+      window.removeEventListener('jobhunter:reset-home', onResetEvent);
+    };
+  }, [handleResetHome]);
 
   // 9. Mobile Filter Dialog (< 1024px)
   const mobileFilterDialogRef = React.useRef<HTMLDialogElement | null>(null);
@@ -630,7 +660,7 @@ export function JobsWorkspace({
 
   return (
     <AppShell
-      user={user}
+      user={activeUser}
       pipelineCounts={{
         favoriteCount: counts.favorite,
         appliedCount: counts.applied,
@@ -640,6 +670,7 @@ export function JobsWorkspace({
       }}
       lastUpdated={lastUpdated}
       mobileFilterTrigger={mobileFilterTrigger}
+      onLogoClick={handleResetHome}
       onOpenAuthModal={() => {
         setAuthPrompt(
           'Inicia sesión o crea una cuenta gratis para clasificar y dar seguimiento a tus postulaciones.'
@@ -803,7 +834,7 @@ export function JobsWorkspace({
                   </button>
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div key={filters.crmTab} className="space-y-3 section-enter">
                   {filteredJobs.map((job) => (
                     <JobCard
                       key={job.deduplication_hash || job.id}
@@ -914,6 +945,10 @@ export function JobsWorkspace({
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
         actionPrompt={authPrompt}
+        onAuthSuccess={(authedUser) => {
+          setActiveUser(authedUser);
+          setIsAuthModalOpen(false);
+        }}
       />
     </AppShell>
   );

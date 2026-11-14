@@ -265,6 +265,7 @@ export interface AuthActionResult<T = unknown> {
   success: boolean;
   message?: string;
   hasSession?: boolean;
+  user?: { id: string; email?: string | null } | null;
   data?: T;
   error?: MappedAuthError;
 }
@@ -540,6 +541,31 @@ export async function performPasswordAuth(params: {
       });
 
       if (error) {
+        const lowerErr = (error.message || '').toLowerCase();
+        if (
+          (lowerErr.includes('already registered') ||
+            lowerErr.includes('already been registered') ||
+            lowerErr.includes('ya está registrado')) &&
+          typeof supabase.auth.signInWithPassword === 'function'
+        ) {
+          const fallbackSignIn = await supabase.auth.signInWithPassword({
+            email: params.email,
+            password: params.password,
+          });
+          if (!fallbackSignIn.error && fallbackSignIn.data?.session) {
+            return {
+              success: true,
+              hasSession: true,
+              user: fallbackSignIn.data.user
+                ? {
+                    id: fallbackSignIn.data.user.id,
+                    email: fallbackSignIn.data.user.email,
+                  }
+                : { id: 'authenticated', email: params.email },
+              message: '¡Sesión iniciada correctamente!',
+            };
+          }
+        }
         return {
           success: false,
           error: mapSupabaseAuthErrorToSpanish(error.message),
@@ -550,7 +576,10 @@ export async function performPasswordAuth(params: {
         return {
           success: true,
           hasSession: true,
-          message: '¡Cuenta creada exitosamente! Redirigiendo...',
+          user: data.user
+            ? { id: data.user.id, email: data.user.email }
+            : { id: 'authenticated', email: params.email },
+          message: '¡Cuenta creada exitosamente! Ingresando...',
         };
       }
 
@@ -563,7 +592,13 @@ export async function performPasswordAuth(params: {
           return {
             success: true,
             hasSession: true,
-            message: '¡Cuenta creada e iniciada exitosamente! Redirigiendo...',
+            user: signInAttempt.data.user
+              ? {
+                  id: signInAttempt.data.user.id,
+                  email: signInAttempt.data.user.email,
+                }
+              : { id: 'authenticated', email: params.email },
+            message: '¡Cuenta creada e iniciada exitosamente! Ingresando...',
           };
         }
       }
@@ -577,7 +612,7 @@ export async function performPasswordAuth(params: {
     }
 
     // signin mode
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data: signInData, error } = await supabase.auth.signInWithPassword({
       email: params.email,
       password: params.password,
     });
@@ -592,6 +627,9 @@ export async function performPasswordAuth(params: {
     return {
       success: true,
       hasSession: true,
+      user: signInData?.user
+        ? { id: signInData.user.id, email: signInData.user.email }
+        : { id: 'authenticated', email: params.email },
       message: '¡Sesión iniciada correctamente!',
     };
   } catch (err: unknown) {

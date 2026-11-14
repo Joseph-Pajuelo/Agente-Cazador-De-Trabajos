@@ -126,7 +126,10 @@ function JobDetailDrawerContent({
       : null;
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-white text-slate-900">
+    <div
+      key={String(job.id)}
+      className="flex h-full flex-col overflow-hidden bg-white text-slate-900 drawer-content-enter"
+    >
       {/* 1. Header with Monogram, Title, Nav and Close */}
       <div className="border-b border-[#E2E8F0] p-5 sm:p-6 bg-slate-50/70 shrink-0">
         <div className="flex items-start justify-between gap-4">

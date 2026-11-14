@@ -170,10 +170,10 @@ export function JobCard({
 
   return (
     <article
-      className={`group relative flex flex-col rounded-2xl border transition-all text-left bg-white ${
+      className={`group relative flex flex-col rounded-2xl border transition-[transform,box-shadow,border-color,background-color] duration-200 ease-[var(--ease-out)] text-left bg-white ${
         isSelected
-          ? 'border-[#2563EB] bg-blue-50/15 shadow-md ring-2 ring-[#2563EB]/20'
-          : 'border-slate-200/90 hover:border-blue-300 hover:shadow-md'
+          ? 'border-[#2563EB] bg-blue-50/20 shadow-md ring-2 ring-[#2563EB]/25 -translate-y-[1px]'
+          : 'border-slate-200/90 hover:border-blue-300 hover:shadow-md hover:-translate-y-[1px]'
       }`}
     >
       {/* ------------------------------------------------------------- */}

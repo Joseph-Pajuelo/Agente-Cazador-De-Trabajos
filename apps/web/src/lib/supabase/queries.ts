@@ -501,17 +501,17 @@ export async function getInitialRadarData(): Promise<{
       }
     }
 
-    // 2. Fetch recent evaluated jobs (<= 45d, limit 600)
-    const cutoff45d = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000)
+    // 2. Fetch recent evaluated jobs (<= 90d, limit 1000)
+    const cutoff90d = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
       .toISOString()
       .split('T')[0];
 
     const { data: rawListings, error } = await supabase
       .from('job_listings')
       .select(JOB_WITH_EVALUATION_SELECT)
-      .or(`published_date.gte.${cutoff45d},published_date.is.null`)
+      .or(`published_date.gte.${cutoff90d},published_date.is.null`)
       .order('created_at', { ascending: false })
-      .limit(600);
+      .limit(1000);
 
     if (error) {
       console.error('getInitialRadarData job_listings error:', error);

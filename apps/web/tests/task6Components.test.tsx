@@ -446,6 +446,10 @@ describe('Task 6: Unified AppShell, FilterSidebar & JobCard UI Components', () =
       expect(html).toContain('Modo Explorador (Público)');
       expect(html).toContain('Ingresar');
       expect(html).toContain('Iniciar sesión');
+      // Logo link has focus:outline-none and main screen redirect label + section-enter wrapper
+      expect(html).toContain('aria-label="Job Hunter Agent - Ir a la pantalla principal"');
+      expect(html).toContain('focus:outline-none');
+      expect(html).toContain('section-enter');
     });
   });
 });

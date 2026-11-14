@@ -25,6 +25,8 @@
   --accent-emerald-bg: #ecfdf5;
   --accent-amber: #92400e;
   --accent-amber-bg: #fef3c7;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 body {
@@ -138,31 +140,103 @@ details[open] > summary .details-chevron {
 
 @media (prefers-reduced-motion: no-preference) {
   .details-chevron {
-    transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+    transition: transform 200ms var(--ease-out);
   }
   dialog[open].job-detail-drawer {
-    animation: slide-in-from-right 200ms cubic-bezier(0.16, 1, 0.3, 1);
+    animation: slide-in-from-right 260ms var(--ease-drawer) both;
   }
-  dialog[open].mobile-filter-drawer {
-    animation: slide-in-from-left 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  dialog[open].mobile-filter-drawer,
+  dialog[open].app-nav-drawer {
+    animation: slide-in-from-left 260ms var(--ease-drawer) both;
+  }
+  dialog[open].auth-modal-dialog {
+    animation: modal-pop-in 220ms var(--ease-out) both;
+  }
+  dialog.job-detail-drawer::backdrop,
+  dialog.mobile-filter-drawer::backdrop,
+  dialog.app-nav-drawer::backdrop,
+  dialog.auth-modal-dialog::backdrop {
+    animation: backdrop-fade-in 200ms var(--ease-out) both;
+  }
+  .section-enter {
+    animation: section-fade-up 220ms var(--ease-out) both;
+  }
+  .drawer-content-enter {
+    animation: drawer-content-fade 190ms var(--ease-out) both;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
 
 @keyframes slide-in-from-right {
   from {
+    opacity: 0.6;
     transform: translateX(100%);
   }
   to {
+    opacity: 1;
     transform: translateX(0);
   }
 }
 
 @keyframes slide-in-from-left {
   from {
+    opacity: 0.6;
     transform: translateX(-100%);
   }
   to {
+    opacity: 1;
     transform: translateX(0);
+  }
+}
+
+@keyframes modal-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes backdrop-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes section-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes drawer-content-fade {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
