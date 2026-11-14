@@ -26,6 +26,7 @@
   --accent-amber: #92400e;
   --accent-amber-bg: #fef3c7;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
@@ -164,6 +165,49 @@ details[open] > summary .details-chevron {
   .drawer-content-enter {
     animation: drawer-content-fade 190ms var(--ease-out) both;
   }
+  .auth-card-enter {
+    animation: modal-pop-in 240ms var(--ease-out) both;
+  }
+  .auth-mode-forward {
+    animation: auth-slide-forward 220ms var(--ease-out) both;
+  }
+  .auth-mode-backward {
+    animation: auth-slide-backward 220ms var(--ease-out) both;
+  }
+  .auth-feedback-enter {
+    animation: section-fade-up 180ms var(--ease-out) both;
+  }
+  .auth-tab-indicator {
+    transition: transform 220ms var(--ease-in-out);
+  }
+  .auth-tab-label {
+    transition: color 180ms ease;
+  }
+  .auth-btn {
+    transition:
+      transform 150ms var(--ease-out),
+      background-color 160ms ease,
+      border-color 160ms ease,
+      box-shadow 160ms ease;
+  }
+  .auth-btn:active:not(:disabled) {
+    transform: scale(0.985);
+  }
+}
+
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .auth-btn-primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-mode-forward,
+  .auth-mode-backward,
+  .auth-card-enter,
+  .auth-feedback-enter {
+    animation: auth-reduced-fade 160ms ease both !important;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -237,6 +281,37 @@ details[open] > summary .details-chevron {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes auth-slide-forward {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes auth-slide-backward {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes auth-reduced-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }
 

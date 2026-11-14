@@ -2,16 +2,25 @@
 
 import React from 'react';
 import { useRouter } from 'next/navigation';
-import { X, Sparkles, AlertCircle, CheckCircle2, RefreshCw } from 'lucide-react';
+import { X, Sparkles, AlertCircle } from 'lucide-react';
 import { isSupabaseConfigured } from '@/lib/supabase/client';
 import {
+  checkGoogleOAuthAvailability,
   isPointerEventOutsideRect,
   performGoogleOAuth,
   performResendConfirmation,
   performPasswordRecovery,
   performPasswordAuth,
   type AuthErrorCode,
+  type GoogleOAuthAvailability,
 } from '@/lib/auth/authHelpers';
+import {
+  AuthGoogleSection,
+  AuthModeTabs,
+  AuthPasswordField,
+  AuthStatusBanners,
+  getAuthTransitionDirection,
+} from '@/components/auth/AuthFormPrimitives';
 
 export interface AuthModalProps {
   isOpen: boolean;
@@ -37,6 +46,9 @@ export function AuthModal({
   const [mode, setMode] = React.useState<'signin' | 'signup' | 'recovery'>(
     defaultMode
   );
+  const [transitionDirection, setTransitionDirection] = React.useState<
+    'forward' | 'backward'
+  >('forward');
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [fullName, setFullName] = React.useState('');
@@ -44,6 +56,8 @@ export function AuthModal({
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [isOAuthSubmitting, setIsOAuthSubmitting] = React.useState(false);
   const [isResending, setIsResending] = React.useState(false);
+  const [googleStatus, setGoogleStatus] =
+    React.useState<GoogleOAuthAvailability>('checking');
 
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [errorCode, setErrorCode] = React.useState<AuthErrorCode | null>(null);
@@ -89,15 +103,23 @@ export function AuthModal({
     }
   }, [isOpen]);
 
-  // Sync mode and state when opening
+  // Sync mode, state, and Google OAuth capability when opening
   React.useEffect(() => {
-    if (isOpen) {
-      setMode(defaultMode);
-      setErrorMessage(null);
-      setErrorCode(null);
-      setSuccessMessage(null);
-      setTouched({});
-    }
+    if (!isOpen) return;
+    setMode(defaultMode);
+    setTransitionDirection('forward');
+    setErrorMessage(null);
+    setErrorCode(null);
+    setSuccessMessage(null);
+    setTouched({});
+
+    let active = true;
+    checkGoogleOAuthAvailability().then((status) => {
+      if (active) setGoogleStatus(status);
+    });
+    return () => {
+      active = false;
+    };
   }, [isOpen, defaultMode]);
 
   // Safe light-dismiss: only trigger if BOTH pointerdown AND pointerup occurred strictly outside the bounding box
@@ -140,6 +162,8 @@ export function AuthModal({
   };
 
   const switchMode = (newMode: 'signin' | 'signup' | 'recovery') => {
+    if (newMode === mode) return;
+    setTransitionDirection(getAuthTransitionDirection(mode, newMode));
     setMode(newMode);
     setErrorMessage(null);
     setErrorCode(null);
@@ -159,6 +183,9 @@ export function AuthModal({
       });
 
       if (!res.success && res.error) {
+        if (res.error.code === 'OAUTH_DISABLED') {
+          setGoogleStatus('disabled');
+        }
         setErrorMessage(res.error.message);
         setErrorCode(res.error.code);
       }
@@ -253,6 +280,9 @@ export function AuthModal({
     }
   };
 
+  const panelAnimationClass =
+    transitionDirection === 'forward' ? 'auth-mode-forward' : 'auth-mode-backward';
+
   return (
     <dialog
       ref={dialogRef}
@@ -261,286 +291,217 @@ export function AuthModal({
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
       aria-labelledby="auth-modal-title"
-      className="auth-modal-dialog m-auto rounded-2xl bg-white p-0 shadow-2xl backdrop:bg-slate-900/60 backdrop:backdrop-blur-xs max-w-md w-full border border-slate-200 text-slate-900 overscroll-contain"
+      className="auth-modal-dialog m-auto rounded-2xl bg-white p-0 shadow-2xl backdrop:bg-slate-900/60 backdrop:backdrop-blur-xs max-w-md w-full border border-slate-200 text-slate-900 overscroll-contain overflow-hidden"
     >
       <div className="relative p-6 sm:p-8">
         {/* Close button */}
         <button
           type="button"
           onClick={handleClose}
-          className="absolute right-4 top-4 rounded-lg p-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-600"
+          className="auth-btn absolute right-4 top-4 rounded-lg p-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600 cursor-pointer"
           aria-label="Cerrar ventana de inicio de sesión"
         >
           <X className="h-5 w-5" />
         </button>
 
-        {/* Header */}
-        <div className="mb-6">
-          <div className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-900 border border-blue-200/60 mb-2">
+        {/* Pill Badge */}
+        <div className="mb-3">
+          <div className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-900 border border-blue-200/60">
             <Sparkles className="h-3 w-3 text-blue-700" />
             Acceso a tu Radar Personal
           </div>
-          <h2
-            id="auth-modal-title"
-            className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900"
-          >
-            {getHeading()}
-          </h2>
-          <p className="mt-1 text-xs sm:text-sm text-slate-600">
-            {mode === 'recovery'
-              ? 'Ingresa tu correo para recibir las instrucciones de recuperación'
-              : actionPrompt}
-          </p>
         </div>
 
-        {/* Supabase Unconfigured Warning */}
-        {!configured && (
-          <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 flex items-start gap-2.5">
-            <AlertCircle className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" />
-            <div>
-              <strong className="font-semibold">Modo Demostración / Lectura:</strong> Supabase
-              aún no está configurado en las variables de entorno. Puedes explorar el radar
-              públicamente. Para guardar notas o postular, añade tus credenciales en{' '}
-              <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">.env.local</code>.
-            </div>
-          </div>
+        {/* Segmented Tab Switcher (with gliding indicator) */}
+        {(mode === 'signin' || mode === 'signup') && (
+          <AuthModeTabs mode={mode} onSelectMode={switchMode} />
         )}
 
-        {/* Error / Success Feedback */}
-        {errorMessage && (
-          <div
-            role="alert"
-            aria-live="polite"
-            className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800 flex flex-col gap-1.5"
-          >
-            <div className="flex items-start gap-2">
-              <AlertCircle className="h-4 w-4 shrink-0 text-red-600 mt-0.5" />
-              <span>{errorMessage}</span>
-            </div>
-            {errorCode === 'EMAIL_NOT_CONFIRMED' && (
-              <div className="pt-1 pl-6">
-                <button
-                  type="button"
-                  onClick={handleResendConfirmation}
-                  disabled={isResending || !configured}
-                  className="inline-flex items-center gap-1.5 font-semibold text-red-900 underline hover:text-red-950 disabled:opacity-50 transition-colors"
-                >
-                  <RefreshCw
-                    className={`h-3 w-3 ${isResending ? 'animate-spin' : ''}`}
-                  />
-                  <span>Reenviar correo de confirmación</span>
-                </button>
+        {/* Animated Header + Form Container */}
+        <div key={mode} className={panelAnimationClass}>
+          <div className="mb-5">
+            <h2
+              id="auth-modal-title"
+              className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900"
+            >
+              {getHeading()}
+            </h2>
+            <p className="mt-1 text-xs sm:text-sm text-slate-600">
+              {mode === 'recovery'
+                ? 'Ingresa tu correo para recibir las instrucciones de recuperación'
+                : actionPrompt}
+            </p>
+          </div>
+
+          {/* Supabase Unconfigured Warning */}
+          {!configured && (
+            <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 flex items-start gap-2.5">
+              <AlertCircle className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" />
+              <div>
+                <strong className="font-semibold">Modo Demostración / Lectura:</strong> Supabase
+                aún no está configurado en las variables de entorno. Puedes explorar el radar
+                públicamente. Para guardar notas o postular, añade tus credenciales en{' '}
+                <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">.env.local</code>.
               </div>
-            )}
-          </div>
-        )}
-
-        {successMessage && (
-          <div
-            role="status"
-            aria-live="polite"
-            className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800 flex items-start gap-2"
-          >
-            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 mt-0.5" />
-            <span>{successMessage}</span>
-          </div>
-        )}
-
-        {/* Email/Password Form (Primary) */}
-        <form onSubmit={handleSubmit} noValidate className="space-y-4">
-          {mode === 'signup' && (
-            <div>
-              <label
-                htmlFor="auth-modal-name"
-                className="block text-xs font-semibold text-slate-700 mb-1"
-              >
-                Nombre completo
-              </label>
-              <input
-                type="text"
-                id="auth-modal-name"
-                name="fullname"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                onBlur={() => setTouched((prev) => ({ ...prev, fullName: true }))}
-                autoComplete="name"
-                placeholder="Ej. Ana Lucía Pérez"
-                className="w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm text-slate-900 placeholder:text-slate-600 focus:border-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-600"
-              />
             </div>
           )}
 
-          <div>
-            <label
-              htmlFor="auth-modal-email"
-              className="block text-xs font-semibold text-slate-700 mb-1"
-            >
-              Correo electrónico
-            </label>
-            <input
-              type="email"
-              id="auth-modal-email"
-              name="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              onBlur={() => setTouched((prev) => ({ ...prev, email: true }))}
-              autoComplete="email"
-              spellCheck={false}
-              placeholder="tu.correo@universidad.edu.pe"
-              className={`w-full rounded-xl border px-3.5 py-2 text-sm text-slate-900 placeholder:text-slate-600 focus:outline-none focus:ring-1 ${
-                touched.email && !email
-                  ? 'border-red-400 focus:border-red-500 focus:ring-red-500'
-                  : 'border-slate-300 focus:border-blue-600 focus:ring-blue-600'
-              }`}
-            />
-            {touched.email && !email && (
-              <p className="mt-1 text-xs text-red-600" role="alert">
-                Ingresa un correo electrónico válido.
-              </p>
-            )}
-          </div>
+          {/* Error / Success Feedback */}
+          <AuthStatusBanners
+            errorMessage={errorMessage}
+            errorCode={errorCode}
+            successMessage={successMessage}
+            isResending={isResending}
+            configured={configured}
+            onResendConfirmation={handleResendConfirmation}
+            onSwitchMode={switchMode}
+          />
 
-          {(mode === 'signin' || mode === 'signup') && (
-            <div>
-              <div className="flex items-center justify-between mb-1">
+          {/* Email/Password Form (Primary) */}
+          <form onSubmit={handleSubmit} noValidate className="space-y-4">
+            {mode === 'signup' && (
+              <div>
                 <label
-                  htmlFor="auth-modal-password"
-                  className="block text-xs font-semibold text-slate-700"
+                  htmlFor="auth-modal-name"
+                  className="block text-xs font-semibold text-slate-700 mb-1"
                 >
-                  Contraseña
+                  Nombre completo
                 </label>
-                {mode === 'signin' && (
-                  <button
-                    type="button"
-                    onClick={() => switchMode('recovery')}
-                    className="text-xs font-medium text-blue-900 hover:underline"
-                  >
-                    ¿Olvidaste tu contraseña?
-                  </button>
-                )}
+                <input
+                  type="text"
+                  id="auth-modal-name"
+                  name="fullname"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  onBlur={() => setTouched((prev) => ({ ...prev, fullName: true }))}
+                  autoComplete="name"
+                  placeholder="Ej. Ana Lucía Pérez"
+                  className="w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm text-slate-900 placeholder:text-slate-600 focus:border-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-600"
+                />
               </div>
+            )}
+
+            <div>
+              <label
+                htmlFor="auth-modal-email"
+                className="block text-xs font-semibold text-slate-700 mb-1"
+              >
+                Correo electrónico
+              </label>
               <input
-                type="password"
-                id="auth-modal-password"
-                name="password"
+                type="email"
+                id="auth-modal-email"
+                name="email"
                 required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onBlur={() => setTouched((prev) => ({ ...prev, password: true }))}
-                autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
-                placeholder="••••••••"
-                minLength={6}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onBlur={() => setTouched((prev) => ({ ...prev, email: true }))}
+                autoComplete="email"
+                spellCheck={false}
+                placeholder="tu.correo@universidad.edu.pe"
                 className={`w-full rounded-xl border px-3.5 py-2 text-sm text-slate-900 placeholder:text-slate-600 focus:outline-none focus:ring-1 ${
-                  touched.password && password.length < 6
+                  touched.email && (!email.trim() || !email.includes('@'))
                     ? 'border-red-400 focus:border-red-500 focus:ring-red-500'
                     : 'border-slate-300 focus:border-blue-600 focus:ring-blue-600'
                 }`}
               />
-              {touched.password && password.length < 6 && (
+              {touched.email && (!email.trim() || !email.includes('@')) && (
                 <p className="mt-1 text-xs text-red-600" role="alert">
-                  La contraseña debe tener al menos 6 caracteres.
+                  Ingresa un correo electrónico válido.
                 </p>
               )}
             </div>
-          )}
 
-          <button
-            type="submit"
-            disabled={isSubmitting || !configured}
-            className="w-full rounded-xl bg-[#2563EB] py-2.5 text-sm font-bold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:opacity-50 transition-colors cursor-pointer"
-          >
-            {isSubmitting
-              ? 'Ingresando...'
-              : mode === 'signin'
-              ? 'Iniciar sesión'
-              : mode === 'signup'
-              ? 'Crear cuenta e ingresar'
-              : 'Enviar instrucciones de recuperación'}
-          </button>
-        </form>
-
-        {/* Google OAuth Button (Secondary - signin and signup modes) */}
-        {(mode === 'signin' || mode === 'signup') && (
-          <>
-            <div className="relative my-5">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-slate-200" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-white px-3 text-slate-500 font-medium">o también</span>
-              </div>
-            </div>
+            {(mode === 'signin' || mode === 'signup') && (
+              <AuthPasswordField
+                id="auth-modal-password"
+                label="Contraseña"
+                value={password}
+                onChange={setPassword}
+                onBlur={() => setTouched((prev) => ({ ...prev, password: true }))}
+                autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
+                showError={Boolean(touched.password && password.length < 6)}
+                rightSlot={
+                  mode === 'signin' ? (
+                    <button
+                      type="button"
+                      onClick={() => switchMode('recovery')}
+                      className="text-xs font-medium text-blue-900 hover:underline cursor-pointer"
+                    >
+                      ¿Olvidaste tu contraseña?
+                    </button>
+                  ) : undefined
+                }
+              />
+            )}
 
             <button
-              type="button"
-              onClick={handleGoogleSignIn}
-              disabled={isOAuthSubmitting || isSubmitting || !configured}
-              className="flex w-full items-center justify-center gap-3 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-xs hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:opacity-50 transition-colors"
+              type="submit"
+              disabled={isSubmitting || !configured}
+              className="auth-btn auth-btn-primary w-full rounded-xl bg-[#2563EB] py-2.5 text-sm font-bold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:opacity-50 cursor-pointer"
             >
-              <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  fill="#4285F4"
-                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                />
-                <path
-                  fill="#34A853"
-                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                />
-                <path
-                  fill="#FBBC05"
-                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                />
-                <path
-                  fill="#EA4335"
-                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                />
-              </svg>
-              <span>
-                {isOAuthSubmitting ? 'Conectando con Google...' : 'Continuar con Google'}
-              </span>
+              {isSubmitting
+                ? mode === 'signup'
+                  ? 'Creando cuenta...'
+                  : 'Ingresando...'
+                : mode === 'signin'
+                ? 'Iniciar sesión'
+                : mode === 'signup'
+                ? 'Crear cuenta e ingresar'
+                : 'Enviar instrucciones de recuperación'}
             </button>
-          </>
-        )}
+          </form>
 
-        {/* Toggle Mode */}
-        <div className="mt-6 text-center text-xs text-slate-600">
-          {mode === 'signin' && (
-            <p>
-              ¿No tienes una cuenta?{' '}
-              <button
-                type="button"
-                onClick={() => switchMode('signup')}
-                className="font-semibold text-blue-900 hover:underline"
-              >
-                Regístrate gratis
-              </button>
-            </p>
+          {/* Google OAuth Button (Secondary - checks live availability cleanly) */}
+          {(mode === 'signin' || mode === 'signup') && (
+            <AuthGoogleSection
+              googleStatus={googleStatus}
+              isOAuthSubmitting={isOAuthSubmitting}
+              isSubmitting={isSubmitting}
+              configured={configured}
+              onGoogleSignIn={handleGoogleSignIn}
+            />
           )}
-          {mode === 'signup' && (
-            <p>
-              ¿Ya tienes una cuenta?{' '}
-              <button
-                type="button"
-                onClick={() => switchMode('signin')}
-                className="font-semibold text-blue-900 hover:underline"
-              >
-                Inicia sesión
-              </button>
-            </p>
-          )}
-          {mode === 'recovery' && (
-            <p>
-              ¿Deseas volver?{' '}
-              <button
-                type="button"
-                onClick={() => switchMode('signin')}
-                className="font-semibold text-blue-900 hover:underline"
-              >
-                Iniciar sesión
-              </button>
-            </p>
-          )}
+
+          {/* Toggle Mode footer links */}
+          <div className="mt-5 text-center text-xs text-slate-600">
+            {mode === 'signin' && (
+              <p>
+                ¿No tienes una cuenta?{' '}
+                <button
+                  type="button"
+                  onClick={() => switchMode('signup')}
+                  className="font-semibold text-blue-900 hover:underline cursor-pointer"
+                >
+                  Regístrate gratis
+                </button>
+              </p>
+            )}
+            {mode === 'signup' && (
+              <p>
+                ¿Ya tienes una cuenta?{' '}
+                <button
+                  type="button"
+                  onClick={() => switchMode('signin')}
+                  className="font-semibold text-blue-900 hover:underline cursor-pointer"
+                >
+                  Inicia sesión
+                </button>
+              </p>
+            )}
+            {mode === 'recovery' && (
+              <p>
+                ¿Deseas volver?{' '}
+                <button
+                  type="button"
+                  onClick={() => switchMode('signin')}
+                  className="font-semibold text-blue-900 hover:underline cursor-pointer"
+                >
+                  Iniciar sesión
+                </button>
+              </p>
+            )}
+          </div>
         </div>
       </div>
     </dialog>

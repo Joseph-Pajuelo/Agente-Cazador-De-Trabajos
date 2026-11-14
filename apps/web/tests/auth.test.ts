@@ -527,5 +527,101 @@ describe('authHelpers', () => {
       expect(res.hasSession).toBe(true);
       expect(res.user).toEqual({ id: 'u-123', email: 'existing@uni.edu.pe' });
     });
+
+    it('returns USER_ALREADY_EXISTS instead of fake confirmation banner on obfuscated repeated signup (identities: [])', async () => {
+      const mockClient = {
+        auth: {
+          signUp: vi.fn().mockResolvedValue({
+            data: {
+              user: { id: 'u-existing', email: 'existing@uni.edu.pe', identities: [] },
+              session: null,
+            },
+            error: null,
+          }),
+          signInWithPassword: vi.fn().mockResolvedValue({
+            data: { user: null, session: null },
+            error: { message: 'Invalid login credentials' },
+          }),
+        },
+      } as unknown as Parameters<typeof performPasswordAuth>[0]['client'];
+
+      const res = await performPasswordAuth({
+        mode: 'signup',
+        email: '  existing@uni.edu.pe  ',
+        password: 'wrong-new-password',
+        fullName: 'Joseph Pajuelo',
+        origin: 'http://localhost:3000',
+        client: mockClient,
+      });
+
+      expect(res.success).toBe(false);
+      expect(res.hasSession).toBeUndefined();
+      expect(res.error?.code).toBe('USER_ALREADY_EXISTS');
+      expect(res.error?.message).toMatch(/ya tiene una cuenta registrada/i);
+    });
+
+    it('returns USER_ALREADY_EXISTS when signUp fails with User already registered and fallback sign-in fails', async () => {
+      const mockClient = {
+        auth: {
+          signUp: vi.fn().mockResolvedValue({
+            data: { user: null, session: null },
+            error: { message: 'User already registered' },
+          }),
+          signInWithPassword: vi.fn().mockResolvedValue({
+            data: { user: null, session: null },
+            error: { message: 'Invalid login credentials' },
+          }),
+        },
+      } as unknown as Parameters<typeof performPasswordAuth>[0]['client'];
+
+      const res = await performPasswordAuth({
+        mode: 'signup',
+        email: 'existing@uni.edu.pe',
+        password: 'wrong-password',
+        origin: 'http://localhost:3000',
+        client: mockClient,
+      });
+
+      expect(res.success).toBe(false);
+      expect(res.error?.code).toBe('USER_ALREADY_EXISTS');
+    });
+
+    it('trims email before calling signInWithPassword and validates short passwords locally', async () => {
+      const signInWithPassword = vi.fn().mockResolvedValue({
+        data: {
+          user: { id: 'u-trim', email: 'joseph@uni.edu.pe' },
+          session: { access_token: 'tok-trim' },
+        },
+        error: null,
+      });
+      const mockClient = {
+        auth: { signInWithPassword },
+      } as unknown as Parameters<typeof performPasswordAuth>[0]['client'];
+
+      const shortRes = await performPasswordAuth({
+        mode: 'signin',
+        email: 'joseph@uni.edu.pe',
+        password: '123',
+        origin: 'http://localhost:3000',
+        client: mockClient,
+      });
+      expect(shortRes.success).toBe(false);
+      expect(shortRes.error?.code).toBe('GENERIC');
+      expect(shortRes.error?.message).toMatch(/al menos 6 caracteres/i);
+      expect(signInWithPassword).not.toHaveBeenCalled();
+
+      const okRes = await performPasswordAuth({
+        mode: 'signin',
+        email: '  joseph@uni.edu.pe  ',
+        password: 'secretpassword',
+        origin: 'http://localhost:3000',
+        client: mockClient,
+      });
+      expect(okRes.success).toBe(true);
+      expect(signInWithPassword).toHaveBeenCalledWith({
+        email: 'joseph@uni.edu.pe',
+        password: 'secretpassword',
+      });
+    });
   });
 });

@@ -7,6 +7,7 @@ export type AuthErrorCode =
   | 'INVALID_CREDENTIALS'
   | 'RATE_LIMITED'
   | 'OAUTH_DISABLED'
+  | 'USER_ALREADY_EXISTS'
   | 'GENERIC';
 
 export interface MappedAuthError {
@@ -139,7 +140,21 @@ export function mapSupabaseAuthErrorToSpanish(
   ) {
     return {
       code: 'OAUTH_DISABLED',
-      message: 'El proveedor de autenticación no está habilitado.',
+      message:
+        'El proveedor de autenticación no está habilitado. Inicia sesión o regístrate con tu correo y contraseña.',
+    };
+  }
+
+  if (
+    normalized.includes('already registered') ||
+    normalized.includes('already been registered') ||
+    normalized.includes('user already exists') ||
+    normalized.includes('ya está registrado')
+  ) {
+    return {
+      code: 'USER_ALREADY_EXISTS',
+      message:
+        'Este correo ya tiene una cuenta registrada. Inicia sesión con tu contraseña anterior o recupérala si no la recuerdas.',
     };
   }
 
@@ -270,6 +285,69 @@ export interface AuthActionResult<T = unknown> {
   error?: MappedAuthError;
 }
 
+export type GoogleOAuthAvailability = 'checking' | 'enabled' | 'disabled' | 'unknown';
+
+interface SupabaseAuthSettingsResponse {
+  external?: {
+    google?: boolean;
+  };
+}
+
+let cachedGoogleAvailability: { value: 'enabled' | 'disabled'; checkedAt: number } | null = null;
+const GOOGLE_AVAILABILITY_TTL_MS = 60_000;
+
+/**
+ * Checks Supabase GoTrue public /auth/v1/settings to verify whether Google OAuth
+ * is currently enabled before redirecting the user off-app to a raw JSON 400 error.
+ */
+export async function checkGoogleOAuthAvailability(options?: {
+  timeoutMs?: number;
+  forceRefresh?: boolean;
+}): Promise<'enabled' | 'disabled' | 'unknown'> {
+  if (typeof window === 'undefined' || !isSupabaseConfigured()) {
+    return 'unknown';
+  }
+
+  const now = Date.now();
+  if (
+    !options?.forceRefresh &&
+    cachedGoogleAvailability &&
+    now - cachedGoogleAvailability.checkedAt < GOOGLE_AVAILABILITY_TTL_MS
+  ) {
+    return cachedGoogleAvailability.value;
+  }
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim().replace(/\/+$/, '');
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+  if (!supabaseUrl || !anonKey) {
+    return 'unknown';
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), options?.timeoutMs ?? 2500);
+
+  try {
+    const response = await fetch(`${supabaseUrl}/auth/v1/settings`, {
+      method: 'GET',
+      headers: { apikey: anonKey },
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      return 'unknown';
+    }
+
+    const payload = (await response.json()) as SupabaseAuthSettingsResponse;
+    const status = payload?.external?.google === true ? 'enabled' : 'disabled';
+    cachedGoogleAvailability = { value: status, checkedAt: Date.now() };
+    return status;
+  } catch {
+    return 'unknown';
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function performGoogleOAuth(params: {
   origin: string;
   nextPath?: string | null;
@@ -287,6 +365,21 @@ export async function performGoogleOAuth(params: {
   }
 
   try {
+    // Only pre-check live Supabase settings in real browser runtime (not injected test mocks)
+    if (!params.client) {
+      const googleStatus = await checkGoogleOAuthAvailability({ forceRefresh: true });
+      if (googleStatus === 'disabled') {
+        return {
+          success: false,
+          error: {
+            code: 'OAUTH_DISABLED',
+            message:
+              'El acceso con Google está deshabilitado temporalmente. Inicia sesión o regístrate con tu correo y contraseña.',
+          },
+        };
+      }
+    }
+
     const supabase = params.client || createClient();
     const redirectTo = buildCallbackRedirectUrl(params.origin, params.nextPath);
 
@@ -323,7 +416,8 @@ export async function performResendConfirmation(params: {
   nextPath?: string | null;
   client?: ReturnType<typeof createClient>;
 }): Promise<AuthActionResult> {
-  if (!params.email) {
+  const cleanEmail = params.email.trim();
+  if (!cleanEmail) {
     return {
       success: false,
       error: {
@@ -352,7 +446,7 @@ export async function performResendConfirmation(params: {
 
     const { error } = await supabase.auth.resend({
       type: 'signup',
-      email: params.email,
+      email: cleanEmail,
       options: {
         emailRedirectTo,
       },
@@ -386,7 +480,8 @@ export async function performPasswordRecovery(params: {
   origin: string;
   client?: ReturnType<typeof createClient>;
 }): Promise<AuthActionResult> {
-  if (!params.email) {
+  const cleanEmail = params.email.trim();
+  if (!cleanEmail) {
     return {
       success: false,
       error: {
@@ -411,7 +506,7 @@ export async function performPasswordRecovery(params: {
     const supabase = params.client || createClient();
     const redirectTo = buildPasswordRecoveryUrl(params.origin);
 
-    const { error } = await supabase.auth.resetPasswordForEmail(params.email, {
+    const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
       redirectTo,
     });
 
@@ -500,12 +595,34 @@ export async function performPasswordAuth(params: {
   nextPath?: string | null;
   client?: ReturnType<typeof createClient>;
 }): Promise<AuthActionResult> {
-  if (!params.email || !params.password) {
+  const cleanEmail = params.email.trim();
+
+  if (!cleanEmail || !params.password) {
     return {
       success: false,
       error: {
         code: 'GENERIC',
         message: 'Por favor completa todos los campos requeridos.',
+      },
+    };
+  }
+
+  if (!cleanEmail.includes('@')) {
+    return {
+      success: false,
+      error: {
+        code: 'GENERIC',
+        message: 'Ingresa un correo electrónico válido.',
+      },
+    };
+  }
+
+  if (params.password.length < 6) {
+    return {
+      success: false,
+      error: {
+        code: 'GENERIC',
+        message: 'La contraseña debe tener al menos 6 caracteres.',
       },
     };
   }
@@ -530,7 +647,7 @@ export async function performPasswordAuth(params: {
         params.nextPath
       );
       const { data, error } = await supabase.auth.signUp({
-        email: params.email,
+        email: cleanEmail,
         password: params.password,
         options: {
           emailRedirectTo,
@@ -543,28 +660,39 @@ export async function performPasswordAuth(params: {
       if (error) {
         const lowerErr = (error.message || '').toLowerCase();
         if (
-          (lowerErr.includes('already registered') ||
-            lowerErr.includes('already been registered') ||
-            lowerErr.includes('ya está registrado')) &&
-          typeof supabase.auth.signInWithPassword === 'function'
+          lowerErr.includes('already registered') ||
+          lowerErr.includes('already been registered') ||
+          lowerErr.includes('user already exists') ||
+          lowerErr.includes('ya está registrado')
         ) {
-          const fallbackSignIn = await supabase.auth.signInWithPassword({
-            email: params.email,
-            password: params.password,
-          });
-          if (!fallbackSignIn.error && fallbackSignIn.data?.session) {
-            return {
-              success: true,
-              hasSession: true,
-              user: fallbackSignIn.data.user
-                ? {
-                    id: fallbackSignIn.data.user.id,
-                    email: fallbackSignIn.data.user.email,
-                  }
-                : { id: 'authenticated', email: params.email },
-              message: '¡Sesión iniciada correctamente!',
-            };
+          if (typeof supabase.auth.signInWithPassword === 'function') {
+            const fallbackSignIn = await supabase.auth.signInWithPassword({
+              email: cleanEmail,
+              password: params.password,
+            });
+            if (!fallbackSignIn.error && fallbackSignIn.data?.session) {
+              return {
+                success: true,
+                hasSession: true,
+                user: fallbackSignIn.data.user
+                  ? {
+                      id: fallbackSignIn.data.user.id,
+                      email: fallbackSignIn.data.user.email,
+                    }
+                  : { id: 'authenticated', email: cleanEmail },
+                message: '¡Sesión iniciada correctamente!',
+              };
+            }
           }
+
+          return {
+            success: false,
+            error: {
+              code: 'USER_ALREADY_EXISTS',
+              message:
+                'Este correo ya tiene una cuenta registrada. Inicia sesión con tu contraseña anterior o recupérala si no la recuerdas.',
+            },
+          };
         }
         return {
           success: false,
@@ -572,20 +700,26 @@ export async function performPasswordAuth(params: {
         };
       }
 
-      if (data.session) {
+      if (data?.session) {
         return {
           success: true,
           hasSession: true,
           user: data.user
             ? { id: data.user.id, email: data.user.email }
-            : { id: 'authenticated', email: params.email },
+            : { id: 'authenticated', email: cleanEmail },
           message: '¡Cuenta creada exitosamente! Ingresando...',
         };
       }
 
+      const isRepeatedSignup = Boolean(
+        data?.user &&
+          Array.isArray(data.user.identities) &&
+          data.user.identities.length === 0
+      );
+
       if (typeof supabase.auth.signInWithPassword === 'function') {
         const signInAttempt = await supabase.auth.signInWithPassword({
-          email: params.email,
+          email: cleanEmail,
           password: params.password,
         });
         if (!signInAttempt.error && signInAttempt.data?.session) {
@@ -597,10 +731,21 @@ export async function performPasswordAuth(params: {
                   id: signInAttempt.data.user.id,
                   email: signInAttempt.data.user.email,
                 }
-              : { id: 'authenticated', email: params.email },
+              : { id: 'authenticated', email: cleanEmail },
             message: '¡Cuenta creada e iniciada exitosamente! Ingresando...',
           };
         }
+      }
+
+      if (isRepeatedSignup) {
+        return {
+          success: false,
+          error: {
+            code: 'USER_ALREADY_EXISTS',
+            message:
+              'Este correo ya tiene una cuenta registrada. Inicia sesión con tu contraseña anterior o usa «¿Olvidaste tu contraseña?» para restablecerla.',
+          },
+        };
       }
 
       return {
@@ -613,7 +758,7 @@ export async function performPasswordAuth(params: {
 
     // signin mode
     const { data: signInData, error } = await supabase.auth.signInWithPassword({
-      email: params.email,
+      email: cleanEmail,
       password: params.password,
     });
 
@@ -624,12 +769,22 @@ export async function performPasswordAuth(params: {
       };
     }
 
+    if (signInData !== undefined && !signInData.session && !signInData.user) {
+      return {
+        success: false,
+        error: {
+          code: 'GENERIC',
+          message: 'No se pudo iniciar la sesión. Intenta nuevamente.',
+        },
+      };
+    }
+
     return {
       success: true,
       hasSession: true,
       user: signInData?.user
         ? { id: signInData.user.id, email: signInData.user.email }
-        : { id: 'authenticated', email: params.email },
+        : { id: 'authenticated', email: cleanEmail },
       message: '¡Sesión iniciada correctamente!',
     };
   } catch (err: unknown) {
