@@ -1,0 +1,292 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-body: var(--font-body), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  --color-editorial-bg: #f8fafc;
+  --color-editorial-card: #ffffff;
+  --color-editorial-border: #e2e8f0;
+  --color-editorial-navy: #1e3a8a;
+  --color-editorial-green: #065f46;
+  --color-editorial-green-bg: #ecfdf5;
+  --color-editorial-amber: #92400e;
+  --color-editorial-amber-bg: #fef3c7;
+}
+
+:root {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --card-bg: #ffffff;
+  --card-border: #e2e8f0;
+  --accent-navy: #1e3a8a;
+  --accent-emerald: #065f46;
+  --accent-emerald-bg: #ecfdf5;
+  --accent-amber: #92400e;
+  --accent-amber-bg: #fef3c7;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+
+/* Modern Web Guidance: MANDATORY rules for modal dialog scroll containment */
+dialog:modal {
+  overscroll-behavior: contain;
+}
+
+dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+/* Mobile Navigation Drawer: NEVER apply display:flex to bare dialog, scope to [open] */
+dialog[open].app-nav-drawer {
+  position: fixed;
+  inset: 0 auto 0 0;
+  margin: 0;
+  height: 100dvh;
+  max-height: 100dvh;
+  width: min(20rem, 82vw);
+  max-width: 100vw;
+  border: none;
+  padding: 0;
+  background: #ffffff;
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.25);
+  display: flex;
+  flex-direction: column;
+  overscroll-behavior: contain;
+  z-index: 50;
+}
+
+dialog.app-nav-drawer::backdrop {
+  background-color: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+/* Job Detail Slide-Over Drawer: strictly scoped to dialog[open] */
+dialog[open].job-detail-drawer {
+  position: fixed;
+  inset: 0 0 0 auto;
+  margin: 0;
+  height: 100dvh;
+  max-height: 100dvh;
+  width: min(44rem, 100vw);
+  max-width: 100vw;
+  border: none;
+  border-left: 1px solid #e2e8f0;
+  padding: 0;
+  background: #ffffff;
+  box-shadow: -10px 0 30px -10px rgba(15, 23, 42, 0.15);
+  display: flex;
+  flex-direction: column;
+  overscroll-behavior: contain;
+  z-index: 50;
+}
+
+dialog.job-detail-drawer::backdrop {
+  background-color: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+/* Mobile Filter Sidebar Drawer (< 1024px): strictly scoped to dialog[open] */
+dialog[open].mobile-filter-drawer {
+  position: fixed;
+  inset: 0 auto 0 0;
+  margin: 0;
+  height: 100dvh;
+  max-height: 100dvh;
+  width: min(22rem, 88vw);
+  max-width: 100vw;
+  border: none;
+  border-right: 1px solid #e2e8f0;
+  padding: 0;
+  background: #ffffff;
+  box-shadow: 10px 0 30px -10px rgba(15, 23, 42, 0.15);
+  display: flex;
+  flex-direction: column;
+  overscroll-behavior: contain;
+  z-index: 50;
+}
+
+dialog.mobile-filter-drawer::backdrop {
+  background-color: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+/* Native Details / Accordion styles without webkit markers */
+details summary::-webkit-details-marker {
+  display: none;
+}
+
+details summary {
+  list-style: none;
+}
+
+details[open] > summary .details-chevron {
+  transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .details-chevron {
+    transition: transform 200ms var(--ease-out);
+  }
+  dialog[open].job-detail-drawer {
+    animation: slide-in-from-right 260ms var(--ease-drawer) both;
+  }
+  dialog[open].mobile-filter-drawer,
+  dialog[open].app-nav-drawer {
+    animation: slide-in-from-left 260ms var(--ease-drawer) both;
+  }
+  dialog[open].auth-modal-dialog {
+    animation: modal-pop-in 220ms var(--ease-out) both;
+  }
+  dialog.job-detail-drawer::backdrop,
+  dialog.mobile-filter-drawer::backdrop,
+  dialog.app-nav-drawer::backdrop,
+  dialog.auth-modal-dialog::backdrop {
+    animation: backdrop-fade-in 200ms var(--ease-out) both;
+  }
+  .section-enter {
+    animation: section-fade-up 220ms var(--ease-out) both;
+  }
+  .drawer-content-enter {
+    animation: drawer-content-fade 190ms var(--ease-out) both;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes slide-in-from-right {
+  from {
+    opacity: 0.6;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-in-from-left {
+  from {
+    opacity: 0.6;
+    transform: translateX(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes modal-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes backdrop-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes section-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes drawer-content-fade {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Progressive enhancement switch: input[type="checkbox"][switch] */
+input[type="checkbox"][switch] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 2.25rem;
+  height: 1.25rem;
+  border-radius: 9999px;
+  background-color: #cbd5e1;
+  position: relative;
+  cursor: pointer;
+  outline: none;
+  border: 1px solid #94a3b8;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+input[type="checkbox"][switch]::before {
+  content: "";
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 9999px;
+  background-color: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+input[type="checkbox"][switch]:checked {
+  background-color: #1e3a8a;
+  border-color: #1e3a8a;
+}
+
+input[type="checkbox"][switch]:checked::before {
+  transform: translateX(1rem);
+}
+
+input[type="checkbox"][switch]:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  input[type="checkbox"][switch],
+  input[type="checkbox"][switch]::before {
+    transition: background-color 150ms ease, transform 150ms cubic-bezier(0.16, 1, 0.3, 1), border-color 150ms ease;
+  }
+}
+
+

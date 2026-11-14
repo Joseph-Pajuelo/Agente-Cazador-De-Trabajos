@@ -1,17 +1,38 @@
 # Credenciales y variables de entorno (NUNCA subir a GitHub)
 .env
+.env.local
+.env*.local
+apps/web/.env.local
 
-# Caché de Python y pruebas
+# Bases de datos y archivos de base de datos locales
+jobs.db
+*.db
+*.db-wal
+*.db-shm
+
+# Reportes generados localmente
+reports/
+
+# Superpowers y tareas locales
+.superpowers/
+
+# Python: caché y entornos virtuales
 __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
-
-# Archivos temporales de SQLite WAL
-*.db-wal
-*.db-shm
-
-# Entornos virtuales
 .venv/
 venv/
 env/
+
+# Node.js y Next.js
+node_modules/
+.next/
+out/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
