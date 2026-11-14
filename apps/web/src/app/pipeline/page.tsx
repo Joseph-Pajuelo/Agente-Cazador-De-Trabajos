@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { ShieldAlert, ArrowLeft } from 'lucide-react';
-import { isSupabaseConfigured, createClient } from '@/lib/supabase/server';
+import { isSupabaseConfigured, getCachedServerUser } from '@/lib/supabase/server';
 import { getUserPipelineJobs } from '@/lib/supabase/queries';
 import { AppShell } from '@/components/layout/AppShell';
 import { PipelineBoard } from '@/components/pipeline/PipelineBoard';
@@ -40,16 +40,13 @@ export default async function PipelinePage() {
     );
   }
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCachedServerUser();
 
   if (!user) {
     redirect('/login?next=/pipeline');
   }
 
-  const jobs = await getUserPipelineJobs();
+  const jobs = await getUserPipelineJobs(user);
 
   const favoriteCount = jobs.filter((j) => j.user_status === 'favorite').length;
   const appliedCount = jobs.filter((j) => j.user_status === 'applied').length;

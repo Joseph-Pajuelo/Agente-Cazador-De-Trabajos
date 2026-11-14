@@ -1,4 +1,11 @@
-import { createClient, isSupabaseConfigured } from './server';
+import { unstable_cache } from 'next/cache';
+import type { User } from '@supabase/supabase-js';
+import {
+  createClient,
+  createPublicClient,
+  getCachedServerUser,
+  isSupabaseConfigured,
+} from './server';
 import { JobSummary, UserProfile, CrmStatus } from '../domain/types';
 import { RoleLevel, EnglishLevel } from '../domain/jobNormalization';
 import { SalaryFilterKey } from '../jobs/workspaceState';
@@ -457,7 +464,52 @@ export interface AuthUserInfo {
   email?: string;
 }
 
-export async function getInitialRadarData(): Promise<{
+async function fetchRecentPublicEvaluatedRowsRaw(): Promise<
+  Record<string, unknown>[]
+> {
+  const supabase = createPublicClient();
+  const cutoff90d = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .split('T')[0];
+
+  const { data, error } = await supabase
+    .from('job_listings')
+    .select(JOB_WITH_EVALUATION_SELECT)
+    .or(`published_date.gte.${cutoff90d},published_date.is.null`)
+    .order('created_at', { ascending: false })
+    .limit(1000);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return (data || []) as Record<string, unknown>[];
+}
+
+const getCachedPublicEvaluatedRows = unstable_cache(
+  fetchRecentPublicEvaluatedRowsRaw,
+  ['public-radar-listings-v1'],
+  { revalidate: 60, tags: ['radar-listings'] }
+);
+
+async function loadRecentPublicEvaluatedRows(): Promise<{
+  rows: Record<string, unknown>[] | null;
+  error: unknown;
+}> {
+  try {
+    const rows =
+      process.env.VITEST || process.env.NODE_ENV === 'test'
+        ? await fetchRecentPublicEvaluatedRowsRaw()
+        : await getCachedPublicEvaluatedRows();
+    return { rows, error: null };
+  } catch (error) {
+    return { rows: null, error };
+  }
+}
+
+export async function getInitialRadarData(
+  knownUser?: User | null
+): Promise<{
   jobs: JobSummary[];
   user: AuthUserInfo | null;
   profileExcludedDistricts: string[];
@@ -468,55 +520,30 @@ export async function getInitialRadarData(): Promise<{
     return {
       jobs: [],
       user: null,
-      profileExcludedDistricts: ['Ate'],
+      profileExcludedDistricts: [],
       lastUpdated: null,
       isConfigured: false,
     };
   }
 
   try {
-    const supabase = await createClient();
+    // 1. Resolve session (cached per request) and public catalog (short-lived cache) in parallel
+    const [resolvedUser, listingsResult] = await Promise.all([
+      knownUser !== undefined ? Promise.resolve(knownUser) : getCachedServerUser(),
+      loadRecentPublicEvaluatedRows(),
+    ]);
 
-    // 1. Fetch authenticated user (if any)
-    let authUser: AuthUserInfo | null = null;
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (user) {
-        authUser = { id: user.id, email: user.email };
-      }
-    } catch {
-      authUser = null;
-    }
+    const authUser: AuthUserInfo | null = resolvedUser
+      ? { id: resolvedUser.id, email: resolvedUser.email }
+      : null;
 
-    let profileExcludedDistricts: string[] = ['Ate'];
-    if (authUser) {
-      const { data: userProfile } = await supabase
-        .from('profiles')
-        .select('excluded_districts')
-        .eq('id', authUser.id)
-        .maybeSingle();
+    let profileExcludedDistricts: string[] = [];
 
-      if (userProfile?.excluded_districts && Array.isArray(userProfile.excluded_districts)) {
-        profileExcludedDistricts = userProfile.excluded_districts;
-      }
-    }
-
-    // 2. Fetch recent evaluated jobs (<= 90d, limit 1000)
-    const cutoff90d = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
-      .toISOString()
-      .split('T')[0];
-
-    const { data: rawListings, error } = await supabase
-      .from('job_listings')
-      .select(JOB_WITH_EVALUATION_SELECT)
-      .or(`published_date.gte.${cutoff90d},published_date.is.null`)
-      .order('created_at', { ascending: false })
-      .limit(1000);
-
-    if (error) {
-      console.error('getInitialRadarData job_listings error:', error);
+    if (listingsResult.error || !listingsResult.rows) {
+      console.error(
+        'getInitialRadarData job_listings error:',
+        listingsResult.error
+      );
       return {
         jobs: [],
         user: authUser,
@@ -526,20 +553,37 @@ export async function getInitialRadarData(): Promise<{
       };
     }
 
-    let listings = rawListings || [];
+    let listings = listingsResult.rows;
 
-    // 3. If user is signed in, fetch user_job_states and any older user-tracked listings
+    // 2. If user is signed in, fetch profile preferences and saved states in parallel
     const userStateMap = new Map<
       number,
       { status: CrmStatus; applied_at?: string | null; notes?: string }
     >();
 
     if (authUser) {
-      const { data: userStates } = await supabase
-        .from('user_job_states')
-        .select('listing_id, status, applied_at, notes')
-        .eq('user_id', authUser.id);
+      const supabase = await createClient();
+      const [profileRes, statesRes] = await Promise.all([
+        supabase
+          .from('profiles')
+          .select('excluded_districts')
+          .eq('id', authUser.id)
+          .maybeSingle(),
+        supabase
+          .from('user_job_states')
+          .select('listing_id, status, applied_at, notes')
+          .eq('user_id', authUser.id),
+      ]);
 
+      const userProfile = profileRes.data;
+      if (
+        userProfile?.excluded_districts &&
+        Array.isArray(userProfile.excluded_districts)
+      ) {
+        profileExcludedDistricts = userProfile.excluded_districts;
+      }
+
+      const userStates = statesRes.data;
       if (userStates) {
         for (const s of userStates) {
           userStateMap.set(Number(s.listing_id), {
@@ -549,8 +593,10 @@ export async function getInitialRadarData(): Promise<{
           });
         }
 
-        // Check if there are user-tracked listings older than 45d not in the fetched batch
-        const existingIds = new Set(listings.map((l: Record<string, unknown>) => Number(l.id)));
+        // Check if there are user-tracked listings older than 90d not in the fetched batch
+        const existingIds = new Set(
+          listings.map((l: Record<string, unknown>) => Number(l.id))
+        );
         const missingIds = userStates
           .map((s: { listing_id: number | string }) => Number(s.listing_id))
           .filter((id) => !existingIds.has(id));
@@ -562,7 +608,10 @@ export async function getInitialRadarData(): Promise<{
             .in('id', missingIds);
 
           if (extraListings) {
-            listings = [...listings, ...extraListings];
+            listings = [
+              ...listings,
+              ...(extraListings as Record<string, unknown>[]),
+            ];
           }
         }
       }
@@ -591,27 +640,29 @@ export async function getInitialRadarData(): Promise<{
     return {
       jobs: [],
       user: null,
-      profileExcludedDistricts: ['Ate'],
+      profileExcludedDistricts: [],
       lastUpdated: null,
       isConfigured: false,
     };
   }
 }
 
-export async function getUserPipelineJobs(): Promise<JobSummary[]> {
+export async function getUserPipelineJobs(
+  knownUser?: User | null
+): Promise<JobSummary[]> {
   if (!isSupabaseConfigured()) {
     return [];
   }
 
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const user =
+      knownUser !== undefined ? knownUser : await getCachedServerUser();
 
     if (!user) {
       return [];
     }
+
+    const supabase = await createClient();
 
     const { data: userStates, error: stateError } = await supabase
       .from('user_job_states')
@@ -664,20 +715,22 @@ export async function getUserPipelineJobs(): Promise<JobSummary[]> {
   }
 }
 
-export async function getUserProfile(): Promise<UserProfile | null> {
+export async function getUserProfile(
+  knownUser?: User | null
+): Promise<UserProfile | null> {
   if (!isSupabaseConfigured()) {
     return null;
   }
 
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const user =
+      knownUser !== undefined ? knownUser : await getCachedServerUser();
 
     if (!user) {
       return null;
     }
+
+    const supabase = await createClient();
 
     const { data, error } = await supabase
       .from('profiles')
@@ -694,7 +747,7 @@ export async function getUserProfile(): Promise<UserProfile | null> {
       ...profile,
       excluded_districts: Array.isArray(profile.excluded_districts)
         ? profile.excluded_districts
-        : ['Ate'],
+        : [],
     };
   } catch (err) {
     console.error('getUserProfile error:', err);
@@ -734,7 +787,9 @@ export function calculatePipelineCounts(
   };
 }
 
-export async function getUserPipelineCounts(): Promise<UserPipelineCounts> {
+export async function getUserPipelineCounts(
+  knownUser?: User | null
+): Promise<UserPipelineCounts> {
   const defaultCounts: UserPipelineCounts = {
     favoriteCount: 0,
     appliedCount: 0,
@@ -748,14 +803,14 @@ export async function getUserPipelineCounts(): Promise<UserPipelineCounts> {
   }
 
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const user =
+      knownUser !== undefined ? knownUser : await getCachedServerUser();
 
     if (!user) {
       return defaultCounts;
     }
+
+    const supabase = await createClient();
 
     const { data, error } = await supabase
       .from('user_job_states')

@@ -11,9 +11,9 @@ import {
 
 describe('urlFilterParams: Bi-directional URL SearchParams Serializer', () => {
   describe('1. parseFiltersFromSearchParams', () => {
-    it('defaults to excludedDistricts: ["Ate"] for guests when excl is absent', () => {
+    it('defaults to excludedDistricts: [] for guests when excl is absent', () => {
       const parsed = parseFiltersFromSearchParams(new URLSearchParams());
-      expect(parsed.filters.excludedDistricts).toEqual(['Ate']);
+      expect(parsed.filters.excludedDistricts).toEqual([]);
       expect(parsed.hasExplicitExclParam).toBe(false);
       expect(parsed.urlSelectedJobId).toBeNull();
     });
@@ -98,9 +98,12 @@ describe('urlFilterParams: Bi-directional URL SearchParams Serializer', () => {
   });
 
   describe('2. serializeFiltersToSearchParams', () => {
-    it('produces empty search params for DEFAULT_WORKSPACE_FILTERS with default exclusions', () => {
-      const params = serializeFiltersToSearchParams(DEFAULT_WORKSPACE_FILTERS, ['Ate']);
+    it('produces empty search params for DEFAULT_WORKSPACE_FILTERS without ?excl=none when no exclusions exist', () => {
+      const params = serializeFiltersToSearchParams(DEFAULT_WORKSPACE_FILTERS, []);
       expect(params.toString()).toBe('');
+
+      const guestParams = serializeFiltersToSearchParams(DEFAULT_WORKSPACE_FILTERS);
+      expect(guestParams.toString()).toBe('');
     });
 
     it('emits excl=none when excludedDistricts is empty []', () => {

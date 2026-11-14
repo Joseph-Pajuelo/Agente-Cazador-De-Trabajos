@@ -349,7 +349,7 @@ describe('Task 6: Pipeline Board & Profile Form Helpers', () => {
         expect(state.university).toBe('');
         expect(state.current_cycle).toBe('');
         expect(state.preferred_districts).toEqual([]);
-        expect(state.excluded_districts).toEqual(['Ate']);
+        expect(state.excluded_districts).toEqual([]);
         expect(state.modality_priority).toEqual(['Híbrido', 'Presencial', 'Remoto']);
         expect(state.target_areas).toEqual([]);
         expect(state.core_skills).toBe('');
@@ -359,7 +359,7 @@ describe('Task 6: Pipeline Board & Profile Form Helpers', () => {
           excluded_districts: undefined,
         };
         const state2 = toProfileFormState(profileWithoutExclusions);
-        expect(state2.excluded_districts).toEqual(['Ate']);
+        expect(state2.excluded_districts).toEqual([]);
       });
     });
 

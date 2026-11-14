@@ -7,12 +7,12 @@ import {
   Compass,
   Briefcase,
   User,
-  Sparkles,
   LogIn,
   LogOut,
   Menu,
   X,
 } from 'lucide-react';
+import { BrandMark, BRAND_NAME, BRAND_TAGLINE } from '@/components/brand/BrandLogo';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 import { isPointerEventOutsideRect } from '@/lib/auth/authHelpers';
 
@@ -52,6 +52,11 @@ export function AppShell({
   } | null>(user);
   const [isSigningOut, setIsSigningOut] = React.useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = React.useState(false);
+  const [pendingHref, setPendingHref] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    setPendingHref(null);
+  }, [pathname]);
 
   React.useEffect(() => {
     setActiveUser(user);
@@ -244,38 +249,36 @@ export function AppShell({
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-900 flex flex-col lg:flex-row">
       {/* ------------------------------------------------------------- */}
-      {/* Desktop Fixed Left Sidebar (232px)                            */}
+      {/* Desktop Fixed Left Sidebar (252px)                            */}
       {/* ------------------------------------------------------------- */}
       <aside
-        className="hidden lg:flex w-[232px] shrink-0 border-r border-[#E2E8F0] bg-white flex-col h-screen sticky top-0 z-20"
+        className="hidden lg:flex w-[252px] shrink-0 border-r border-[#E2E8F0] bg-white flex-col h-screen sticky top-0 z-20"
         aria-label="Barra lateral de navegación"
       >
         {/* Brand Header */}
         <div className="p-5 border-b border-[#E2E8F0]">
           <Link
             href="/"
-            onClick={handleLogoNavigation}
-            className="group flex items-center gap-3 rounded-xl p-1 -m-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/40 transition-all duration-150 ease-out hover:opacity-90 active:scale-[0.98]"
-            aria-label="Job Hunter Agent - Ir a la pantalla principal"
+            prefetch={true}
+            onClick={(e) => {
+              if (pathname !== '/') setPendingHref('/');
+              handleLogoNavigation(e);
+            }}
+            className="nav-brand-link group flex items-center gap-3 rounded-xl p-1 -m-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/40"
+            aria-label={`${BRAND_NAME} - Ir a la pantalla principal`}
           >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#2563EB] to-[#1D4ED8] text-white font-black text-base shadow-sm group-hover:shadow-md transition-shadow">
-              JH
-            </div>
+            <BrandMark size="md" className="drop-shadow-xs group-hover:scale-[1.03] transition-transform duration-150" />
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
                 <span className="font-extrabold text-slate-900 tracking-tight text-lg truncate group-hover:text-[#2563EB] transition-colors">
-                  Job Hunter
+                  {BRAND_NAME}
                 </span>
               </div>
               <p className="text-xs text-[#2563EB] font-semibold truncate">
-                Prácticas Lima
+                {BRAND_TAGLINE}
               </p>
             </div>
           </Link>
-          <div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-[#2563EB] border border-blue-200/80">
-            <Sparkles className="h-3 w-3 text-[#2563EB]" />
-            <span>Radar Inteligente</span>
-          </div>
         </div>
 
         {/* Navigation Links */}
@@ -285,39 +288,54 @@ export function AppShell({
         >
           {navLinks.map((link) => {
             const Icon = link.icon;
-            const isActive = link.exact
+            const currentPathMatch = link.exact
               ? pathname === link.href
               : pathname === link.href || pathname.startsWith(`${link.href}/`);
+            const isPending = pendingHref === link.href;
+            const isActive = pendingHref ? isPending : currentPathMatch;
 
             return (
               <Link
                 key={link.href}
                 href={link.href}
-                className={`flex items-center justify-between rounded-xl px-3.5 py-3 text-[15px] font-semibold transition-all ${
+                prefetch={true}
+                onClick={() => {
+                  if (!currentPathMatch) {
+                    setPendingHref(link.href);
+                  }
+                }}
+                className={`nav-tab-link flex items-center justify-between gap-2 rounded-xl px-3.5 py-2.5 text-[14px] font-semibold ${
                   isActive
                     ? 'bg-[#2563EB] text-white shadow-sm'
-                    : 'text-slate-700 hover:bg-blue-50/60 hover:text-[#2563EB]'
+                    : 'text-slate-700 hover:bg-blue-50/70 hover:text-[#2563EB]'
                 }`}
-                aria-current={isActive ? 'page' : undefined}
+                aria-current={currentPathMatch ? 'page' : undefined}
               >
-                <div className="flex items-center gap-3 min-w-0">
+                <div className="flex items-center gap-2.5 min-w-0">
                   <Icon
                     className={`h-5 w-5 shrink-0 ${
                       isActive ? 'text-white' : 'text-slate-500'
                     }`}
                   />
-                  <span className="truncate">{link.label}</span>
+                  <span className="whitespace-nowrap">{link.label}</span>
                 </div>
-                {typeof link.badge === 'number' && (
+                {isPending ? (
                   <span
-                    className={`ml-2 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-xs font-bold ${
-                      isActive
-                        ? 'bg-white text-[#2563EB]'
-                        : 'bg-blue-100 text-[#2563EB]'
-                    }`}
-                  >
-                    {link.badge}
-                  </span>
+                    className="h-2 w-2 shrink-0 rounded-full bg-white/90 animate-pulse"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  typeof link.badge === 'number' && (
+                    <span
+                      className={`ml-1 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-xs font-bold ${
+                        isActive
+                          ? 'bg-white text-[#2563EB]'
+                          : 'bg-blue-100 text-[#2563EB]'
+                      }`}
+                    >
+                      {link.badge}
+                    </span>
+                  )
                 )}
               </Link>
             );
@@ -397,15 +415,14 @@ export function AppShell({
           </button>
           <Link
             href="/"
+            prefetch={true}
             onClick={handleLogoNavigation}
             className="flex items-center gap-2 rounded-lg p-1 -m-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB]/40 transition-transform active:scale-[0.98]"
-            aria-label="Job Hunter Agent - Ir a la pantalla principal"
+            aria-label={`${BRAND_NAME} - Ir a la pantalla principal`}
           >
-            <div className="flex h-7 w-7 items-center justify-center rounded bg-[#2563EB] text-white text-xs font-bold shadow-2xs">
-              JH
-            </div>
+            <BrandMark size="sm" />
             <span className="font-bold text-slate-900 text-sm tracking-tight">
-              Job Hunter
+              {BRAND_NAME}
             </span>
           </Link>
         </div>
@@ -443,15 +460,13 @@ export function AppShell({
           {/* Drawer Header */}
           <div className="flex items-center justify-between border-b border-slate-100 p-4">
             <div className="flex items-center gap-2.5">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#1E3A8A] text-white text-xs font-bold shadow-xs">
-                JH
-              </div>
+              <BrandMark size="sm" />
               <div>
                 <span className="font-bold text-slate-900 text-sm">
-                  Job Hunter
+                  {BRAND_NAME}
                 </span>
-                <span className="block text-[10px] text-slate-500">
-                  Prácticas Lima
+                <span className="block text-[10px] text-[#2563EB] font-semibold">
+                  {BRAND_TAGLINE}
                 </span>
               </div>
             </div>
@@ -481,8 +496,12 @@ export function AppShell({
                 <Link
                   key={link.href}
                   href={link.href}
-                  onClick={closeDrawer}
-                  className={`flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
+                  prefetch={true}
+                  onClick={() => {
+                    if (!isActive) setPendingHref(link.href);
+                    closeDrawer();
+                  }}
+                  className={`nav-tab-link flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium ${
                     isActive
                       ? 'bg-[#EFF6FF] text-[#1E3A8A] font-semibold'
                       : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'

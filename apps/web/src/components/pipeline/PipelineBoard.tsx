@@ -280,7 +280,7 @@ export function PipelineBoard({ initialJobs, user }: PipelineBoardProps) {
               <section
                 key={column.key}
                 aria-label={`Columna ${column.label}`}
-                className="flex flex-col rounded-2xl border border-slate-200 bg-slate-100/60 p-3.5 shadow-2xs min-h-[480px]"
+                className="pipeline-col-enter flex flex-col rounded-2xl border border-slate-200 bg-slate-100/60 p-3.5 shadow-2xs min-h-[480px]"
               >
                 {/* Column Header */}
                 <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-200/80">
@@ -327,7 +327,7 @@ export function PipelineBoard({ initialJobs, user }: PipelineBoardProps) {
                       return (
                         <article
                           key={job.id}
-                          className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-4 shadow-2xs hover:shadow-xs transition-shadow"
+                          className="pipeline-card-surface flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-4 shadow-2xs hover:shadow-xs transition-shadow"
                         >
                           {/* Card Top: Monogram + Company + External Link */}
                           <div className="flex items-start justify-between gap-2">
@@ -425,7 +425,7 @@ export function PipelineBoard({ initialJobs, user }: PipelineBoardProps) {
                           {/* Notes preview or editor */}
                           <div className="mt-2.5">
                             {isEditingNotes ? (
-                              <div className="space-y-2 rounded-lg bg-slate-50 p-2.5 border border-slate-200">
+                              <div className="filter-details-body space-y-2 rounded-lg bg-slate-50 p-2.5 border border-slate-200">
                                 <label
                                   htmlFor={`notes-area-${job.id}`}
                                   className="block text-[11px] font-medium text-slate-700"
@@ -451,7 +451,7 @@ export function PipelineBoard({ initialJobs, user }: PipelineBoardProps) {
                                     type="button"
                                     disabled={isSaving}
                                     onClick={() => handleCancelNotes(job.id)}
-                                    className="rounded-md px-2 py-1 text-xs text-slate-600 hover:bg-slate-200/60"
+                                    className="interactive-pill rounded-md px-2 py-1 text-xs text-slate-600 hover:bg-slate-200/60"
                                   >
                                     Cancelar
                                   </button>
@@ -459,7 +459,7 @@ export function PipelineBoard({ initialJobs, user }: PipelineBoardProps) {
                                     type="button"
                                     disabled={isSaving}
                                     onClick={() => handleSaveNotes(job)}
-                                    className="rounded-md bg-blue-900 px-2.5 py-1 text-xs font-semibold text-white shadow-2xs hover:bg-blue-800 disabled:opacity-50"
+                                    className="interactive-pill rounded-md bg-blue-900 px-2.5 py-1 text-xs font-semibold text-white shadow-2xs hover:bg-blue-800 disabled:opacity-50"
                                   >
                                     {isSaving ? 'Guardando...' : 'Guardar'}
                                   </button>

@@ -9,6 +9,8 @@ import { shouldRedirectToLogin } from '../src/lib/supabase/middleware';
 import {
   buildHistoricalSearchFilters,
   buildHistoricalSupabaseQuery,
+  getInitialRadarData,
+  getUserProfile,
 } from '../src/lib/supabase/queries';
 import {
   getJobDetail,
@@ -538,6 +540,54 @@ describe('Task 4: Supabase Auth, Middleware, Queries & Server Actions', () => {
         // Reached end of data -> hasMore must be false and nextOffset undefined
         expect(page2.hasMore).toBe(false);
         expect(page2.nextOffset).toBeUndefined();
+      } finally {
+        vi.restoreAllMocks();
+      }
+    });
+
+    it('defaults profileExcludedDistricts and excluded_districts to [] across queries and getCachedServerUser', async () => {
+      vi.spyOn(supabaseServer, 'isSupabaseConfigured').mockReturnValue(false);
+      try {
+        const unconfiguredUser = await supabaseServer.getCachedServerUser();
+        expect(unconfiguredUser).toBeNull();
+
+        const radar = await getInitialRadarData();
+        expect(radar.profileExcludedDistricts).toEqual([]);
+        expect(radar.isConfigured).toBe(false);
+      } finally {
+        vi.restoreAllMocks();
+      }
+
+      const mockClient = {
+        from: vi.fn(() => ({
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              single: vi.fn().mockResolvedValue({
+                data: {
+                  id: 'usr-no-ate',
+                  email: 'postulante@uni.edu.pe',
+                  excluded_districts: null,
+                },
+                error: null,
+              }),
+            })),
+          })),
+        })),
+        auth: {
+          getUser: vi.fn().mockResolvedValue({
+            data: { user: { id: 'usr-no-ate', email: 'postulante@uni.edu.pe' } },
+            error: null,
+          }),
+        },
+      };
+
+      vi.spyOn(supabaseServer, 'isSupabaseConfigured').mockReturnValue(true);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      vi.spyOn(supabaseServer, 'createClient').mockResolvedValue(mockClient as any);
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const profile = await getUserProfile({ id: 'usr-no-ate', email: 'postulante@uni.edu.pe' } as any);
+        expect(profile?.excluded_districts).toEqual([]);
       } finally {
         vi.restoreAllMocks();
       }

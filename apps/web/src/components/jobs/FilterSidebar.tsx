@@ -14,7 +14,6 @@ import {
   Banknote,
   Globe,
   Sliders,
-  Check,
 } from 'lucide-react';
 import {
   WorkspaceFilters,
@@ -495,7 +494,6 @@ export function FilterSidebar({
   ]);
 
   const hasVisibleChips = activeChips.length > 0;
-  const isAteExcluded = filters.excludedDistricts.includes('Ate');
 
   return (
     <aside
@@ -532,7 +530,7 @@ export function FilterSidebar({
               <button
                 type="button"
                 onClick={handleClearAll}
-                className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold text-rose-700 hover:bg-rose-50 transition-colors"
+                className="interactive-pill inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold text-rose-700 hover:bg-rose-50 transition-colors"
                 title="Restablecer todos los filtros"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
@@ -608,7 +606,7 @@ export function FilterSidebar({
           {activeChips.map((chip) => (
             <span
               key={chip.id}
-              className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium ${chip.colorClass}`}
+              className={`filter-chip-enter inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium ${chip.colorClass}`}
             >
               <span className="truncate max-w-[140px]">{chip.label}</span>
               <button
@@ -643,42 +641,7 @@ export function FilterSidebar({
           </span>
         </summary>
 
-        <div className="px-4 pb-4 space-y-3">
-          {/* Quick Ate Exclusion Button / Toggle */}
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-2.5">
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="block text-xs font-bold text-slate-800">
-                  Zona Este: Ate
-                </span>
-                <span className="block text-[11px] text-slate-500">
-                  {districtCounts['Ate'] !== undefined
-                    ? `${districtCounts['Ate']} vacantes detectadas`
-                    : 'Filtro por distancia común'}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => toggleDistrictExclusion('Ate')}
-                className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors ${
-                  isAteExcluded
-                    ? 'bg-rose-100 text-rose-900 border border-rose-300'
-                    : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-100'
-                }`}
-                aria-pressed={isAteExcluded}
-              >
-                {isAteExcluded ? (
-                  <>
-                    <Check className="h-3.5 w-3.5 text-rose-700" />
-                    <span>Excluido</span>
-                  </>
-                ) : (
-                  <span>+ Excluir</span>
-                )}
-              </button>
-            </div>
-          </div>
-
+        <div className="filter-details-body px-4 pb-4 space-y-3">
           {/* District list search with accessible label */}
           <div className="relative">
             <label htmlFor="filter-district-search" className="sr-only">
@@ -737,7 +700,7 @@ export function FilterSidebar({
                   <button
                     type="button"
                     onClick={() => toggleDistrictExclusion(d)}
-                    className={`ml-1.5 rounded px-1.5 py-0.5 text-[10px] font-semibold transition-colors ${
+                    className={`interactive-pill ml-1.5 rounded px-1.5 py-0.5 text-[10px] font-semibold transition-colors ${
                       isExcluded
                         ? 'bg-rose-200 text-rose-900'
                         : 'text-slate-600 hover:bg-slate-200 hover:text-slate-800'
@@ -845,7 +808,7 @@ export function FilterSidebar({
                     key={lvl}
                     type="button"
                     onClick={() => toggleEnglishLevel(lvl)}
-                    className={`rounded-lg px-2.5 py-1 text-xs font-semibold border transition-colors ${
+                    className={`interactive-pill rounded-lg px-2.5 py-1 text-xs font-semibold border transition-colors ${
                       isSelected
                         ? 'bg-[#2563EB] text-white border-[#2563EB]'
                         : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
@@ -873,7 +836,7 @@ export function FilterSidebar({
           <ChevronDown className="h-4 w-4 text-slate-500 details-chevron" />
         </summary>
 
-        <div className="px-4 pb-4 space-y-1.5">
+        <div className="filter-details-body px-4 pb-4 space-y-1.5">
           {(
             [
               [1, 'Últimas 24 horas (24h)'],
@@ -925,7 +888,7 @@ export function FilterSidebar({
           <ChevronDown className="h-4 w-4 text-slate-500 details-chevron" />
         </summary>
 
-        <div className="px-4 pb-4 space-y-1.5">
+        <div className="filter-details-body px-4 pb-4 space-y-1.5">
           {LIMA_CATEGORIES.map((cat) => {
             const isSelected = filters.categories.includes(cat);
             const count = categoryCounts[cat];
@@ -976,7 +939,7 @@ export function FilterSidebar({
           <ChevronDown className="h-4 w-4 text-slate-500 details-chevron" />
         </summary>
 
-        <div className="px-4 pb-4 space-y-2">
+        <div className="filter-details-body px-4 pb-4 space-y-2">
           {(
             [
               ['preprofesional', 'Preprofesional (Estudiantes)'],
@@ -1038,7 +1001,7 @@ export function FilterSidebar({
           <ChevronDown className="h-4 w-4 text-slate-500 details-chevron" />
         </summary>
 
-        <div className="px-4 pb-4 space-y-2">
+        <div className="filter-details-body px-4 pb-4 space-y-2">
           {['Híbrido', 'Presencial', 'Remoto'].map((mod) => {
             const isSelected = filters.modalities.includes(mod);
             return (
@@ -1071,7 +1034,7 @@ export function FilterSidebar({
           <ChevronDown className="h-4 w-4 text-slate-500 details-chevron" />
         </summary>
 
-        <div className="px-4 pb-4 space-y-1.5">
+        <div className="filter-details-body px-4 pb-4 space-y-1.5">
           {(
             [
               ['any', 'Cualquiera (con o sin salario)'],
@@ -1119,7 +1082,7 @@ export function FilterSidebar({
           <ChevronDown className="h-4 w-4 text-slate-500 details-chevron" />
         </summary>
 
-        <div className="px-4 pb-4 space-y-2">
+        <div className="filter-details-body px-4 pb-4 space-y-2">
           {Object.entries(SOURCE_LABELS).map(([key, label]) => {
             const isSelected = filters.sources.includes(key);
             return (
@@ -1152,7 +1115,7 @@ export function FilterSidebar({
           <ChevronDown className="h-4 w-4 text-slate-500 details-chevron" />
         </summary>
 
-        <div className="px-4 pb-4 space-y-3">
+        <div className="filter-details-body px-4 pb-4 space-y-3">
           <div className="grid grid-cols-2 gap-2">
             {(
               [
@@ -1168,7 +1131,7 @@ export function FilterSidebar({
                   key={`score-${score}`}
                   type="button"
                   onClick={() => onChange({ ...filters, minScore: score })}
-                  className={`rounded-lg px-2 py-1.5 text-xs font-semibold border transition-colors ${
+                  className={`interactive-pill rounded-lg px-2 py-1.5 text-xs font-semibold border transition-colors ${
                     isSelected
                       ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
                       : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'

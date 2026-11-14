@@ -3,7 +3,8 @@
 import React, { Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Sparkles, AlertCircle, ArrowLeft } from 'lucide-react';
+import { AlertCircle, ArrowLeft } from 'lucide-react';
+import { BrandMark, BRAND_NAME } from '@/components/brand/BrandLogo';
 import { isSupabaseConfigured } from '@/lib/supabase/client';
 import { sanitizeNextPath } from '@/lib/auth/safeRedirect';
 import {
@@ -253,9 +254,9 @@ function LoginForm() {
           <span>Volver al radar de empleos</span>
         </Link>
         <div>
-          <div className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-900 border border-blue-200/60">
-            <Sparkles className="h-3 w-3 text-blue-700" />
-            Job Hunter Agent
+          <div className="inline-flex items-center gap-2 rounded-full bg-blue-50/90 px-3 py-1 text-xs font-bold text-slate-900 border border-blue-200/70">
+            <BrandMark size="xs" />
+            <span>{BRAND_NAME}</span>
           </div>
         </div>
       </div>

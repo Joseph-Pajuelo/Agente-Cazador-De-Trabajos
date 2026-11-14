@@ -162,6 +162,91 @@ details[open] > summary .details-chevron {
   .section-enter {
     animation: section-fade-up 220ms var(--ease-out) both;
   }
+
+  .nav-brand-link .nav-brand-mark {
+    transition: transform 180ms var(--ease-out);
+  }
+
+  .nav-tab-link {
+    transition:
+      transform 160ms var(--ease-out),
+      background-color 160ms var(--ease-out),
+      color 160ms var(--ease-out),
+      box-shadow 160ms var(--ease-out);
+  }
+
+  .nav-tab-link:active {
+    transform: scale(0.985);
+  }
+
+  .interactive-pill {
+    transition:
+      transform 140ms var(--ease-out),
+      background-color 140ms var(--ease-out),
+      border-color 140ms var(--ease-out),
+      color 140ms var(--ease-out),
+      box-shadow 140ms var(--ease-out);
+  }
+
+  .interactive-pill:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+
+  .filter-chip-enter {
+    animation: filter-chip-in 170ms var(--ease-out) both;
+  }
+
+  details[open] > .filter-details-body {
+    animation: filter-panel-reveal 180ms var(--ease-out) both;
+  }
+
+  .feed-filter-enter {
+    animation: feed-refresh-fade 190ms var(--ease-out) both;
+  }
+
+  .feed-stagger-cards > *:nth-child(-n + 6) {
+    animation: section-fade-up 210ms var(--ease-out) both;
+  }
+
+  .feed-stagger-cards > *:nth-child(1) {
+    animation-delay: 0ms;
+  }
+  .feed-stagger-cards > *:nth-child(2) {
+    animation-delay: 24ms;
+  }
+  .feed-stagger-cards > *:nth-child(3) {
+    animation-delay: 48ms;
+  }
+  .feed-stagger-cards > *:nth-child(4) {
+    animation-delay: 72ms;
+  }
+  .feed-stagger-cards > *:nth-child(5) {
+    animation-delay: 96ms;
+  }
+  .feed-stagger-cards > *:nth-child(6) {
+    animation-delay: 120ms;
+  }
+
+  .pipeline-col-enter {
+    animation: section-fade-up 230ms var(--ease-out) both;
+  }
+
+  .pipeline-col-enter:nth-child(2) {
+    animation-delay: 32ms;
+  }
+  .pipeline-col-enter:nth-child(3) {
+    animation-delay: 64ms;
+  }
+  .pipeline-col-enter:nth-child(4) {
+    animation-delay: 96ms;
+  }
+
+  .pipeline-card-surface {
+    transition:
+      transform 160ms var(--ease-out),
+      box-shadow 160ms var(--ease-out),
+      border-color 160ms var(--ease-out);
+  }
   .drawer-content-enter {
     animation: drawer-content-fade 190ms var(--ease-out) both;
   }
@@ -196,6 +281,19 @@ details[open] > summary .details-chevron {
 }
 
 @media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .nav-brand-link:hover .nav-brand-mark {
+    transform: scale(1.04);
+  }
+
+  .nav-tab-link:hover:not([aria-current='page']) {
+    transform: translateX(2px);
+  }
+
+  .pipeline-card-surface:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px -10px rgba(15, 23, 42, 0.14);
+  }
+
   .auth-btn-primary:hover:not(:disabled) {
     transform: translateY(-1px);
   }
@@ -259,6 +357,63 @@ details[open] > summary .details-chevron {
   }
   to {
     opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .filter-chip-enter,
+  details[open] > .filter-details-body,
+  .feed-filter-enter,
+  .feed-stagger-cards > *:nth-child(-n + 6),
+  .pipeline-col-enter {
+    animation: auth-reduced-fade 120ms ease-out both;
+    animation-delay: 0ms;
+  }
+
+  .nav-brand-link .nav-brand-mark,
+  .nav-tab-link,
+  .interactive-pill,
+  .pipeline-card-surface {
+    transition-duration: 0.01ms;
+    transform: none;
+  }
+
+  .nav-tab-link:active,
+  .interactive-pill:active:not(:disabled) {
+    transform: none;
+  }
+}
+
+@keyframes filter-chip-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes filter-panel-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes feed-refresh-fade {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 

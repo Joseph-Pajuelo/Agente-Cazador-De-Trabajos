@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { ShieldAlert, ArrowLeft } from 'lucide-react';
-import { isSupabaseConfigured, createClient } from '@/lib/supabase/server';
+import { isSupabaseConfigured, getCachedServerUser } from '@/lib/supabase/server';
 import { getUserProfile, getUserPipelineCounts } from '@/lib/supabase/queries';
 import { AppShell } from '@/components/layout/AppShell';
 import { ProfileForm } from '@/components/profile/ProfileForm';
@@ -40,18 +40,15 @@ export default async function ProfilePage() {
     );
   }
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCachedServerUser();
 
   if (!user) {
     redirect('/login?next=/profile');
   }
 
   const [profile, pipelineCounts] = await Promise.all([
-    getUserProfile(),
-    getUserPipelineCounts(),
+    getUserProfile(user),
+    getUserPipelineCounts(user),
   ]);
 
   return (

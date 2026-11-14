@@ -147,7 +147,7 @@ export function ProfileForm({ initialProfile, userEmail }: ProfileFormProps) {
         <div
           role="alert"
           aria-live="assertive"
-          className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"
+          className="auth-feedback-enter flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800"
         >
           <AlertCircle className="h-5 w-5 shrink-0 text-rose-600" />
           <span>{errorMessage}</span>
@@ -158,7 +158,7 @@ export function ProfileForm({ initialProfile, userEmail }: ProfileFormProps) {
         <div
           role="status"
           aria-live="polite"
-          className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"
+          className="auth-feedback-enter flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"
         >
           <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
           <span>{successMessage}</span>
@@ -168,7 +168,7 @@ export function ProfileForm({ initialProfile, userEmail }: ProfileFormProps) {
       {/* Form */}
       <form onSubmit={handleSubmit} className="space-y-8" noValidate>
         {/* Section 1: Personal & Academic Info */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 sm:p-8 shadow-2xs space-y-6">
+        <div className="section-enter rounded-2xl border border-slate-200 bg-white p-6 sm:p-8 shadow-2xs space-y-6">
           <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
             <GraduationCap className="h-5 w-5 text-blue-900" />
             <h2 className="text-base font-bold text-slate-900">
@@ -282,7 +282,7 @@ export function ProfileForm({ initialProfile, userEmail }: ProfileFormProps) {
         </div>
 
         {/* Section 2: Preferences (Districts & Modality) */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 sm:p-8 shadow-2xs space-y-6">
+        <div className="section-enter rounded-2xl border border-slate-200 bg-white p-6 sm:p-8 shadow-2xs space-y-6">
           <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
             <MapPin className="h-5 w-5 text-blue-900" />
             <h2 className="text-base font-bold text-slate-900">
@@ -310,7 +310,7 @@ export function ProfileForm({ initialProfile, userEmail }: ProfileFormProps) {
                     type="button"
                     aria-pressed={isSelected}
                     onClick={() => toggleDistrict(district)}
-                    className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                    className={`interactive-pill inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
                       isSelected
                         ? 'bg-blue-900 text-white font-semibold shadow-2xs'
                         : 'bg-slate-100 text-slate-700 hover:bg-slate-200/80'
@@ -336,7 +336,7 @@ export function ProfileForm({ initialProfile, userEmail }: ProfileFormProps) {
                 </span>
               </div>
               <p className="text-xs text-slate-500">
-                Las ofertas de estos distritos se excluirán automáticamente del radar (preseleccionado Ate por accesibilidad):
+                Las ofertas de los distritos que elijas aquí se ocultarán de tu radar personal (ninguno bloqueado por defecto):
               </p>
             </div>
 
@@ -349,7 +349,7 @@ export function ProfileForm({ initialProfile, userEmail }: ProfileFormProps) {
                     type="button"
                     aria-pressed={isExcluded}
                     onClick={() => toggleExcludedDistrict(district)}
-                    className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                    className={`interactive-pill inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
                       isExcluded
                         ? 'bg-rose-900 text-white font-semibold shadow-2xs'
                         : 'bg-slate-100 text-slate-700 hover:bg-slate-200/80'
@@ -432,7 +432,7 @@ export function ProfileForm({ initialProfile, userEmail }: ProfileFormProps) {
                     type="button"
                     aria-pressed={isSelected}
                     onClick={() => toggleTargetArea(area)}
-                    className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                    className={`interactive-pill inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
                       isSelected
                         ? 'bg-blue-900 text-white font-semibold shadow-2xs'
                         : 'bg-slate-100 text-slate-700 hover:bg-slate-200/80'
@@ -448,7 +448,7 @@ export function ProfileForm({ initialProfile, userEmail }: ProfileFormProps) {
         </div>
 
         {/* Section 3: Technical Skills */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 sm:p-8 shadow-2xs space-y-6">
+        <div className="section-enter rounded-2xl border border-slate-200 bg-white p-6 sm:p-8 shadow-2xs space-y-6">
           <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
             <Code2 className="h-5 w-5 text-blue-900" />
             <h2 className="text-base font-bold text-slate-900">
@@ -527,7 +527,7 @@ export function ProfileForm({ initialProfile, userEmail }: ProfileFormProps) {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="inline-flex items-center gap-2 rounded-xl bg-blue-900 px-6 py-3 text-sm font-semibold text-white shadow-xs hover:bg-blue-800 focus:outline-hidden focus:ring-2 focus:ring-blue-900 focus:ring-offset-2 disabled:opacity-50 transition-colors"
+            className="interactive-pill inline-flex items-center gap-2 rounded-xl bg-blue-900 px-6 py-3 text-sm font-semibold text-white shadow-xs hover:bg-blue-800 focus:outline-hidden focus:ring-2 focus:ring-blue-900 focus:ring-offset-2 disabled:opacity-50 transition-colors"
           >
             <Save className="h-4 w-4" />
             <span>{isSubmitting ? 'Guardando cambios...' : 'Guardar preferencias de perfil'}</span>

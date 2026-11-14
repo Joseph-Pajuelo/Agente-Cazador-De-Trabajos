@@ -503,7 +503,7 @@ describe('Workspace State & Pure Reducer Helpers', () => {
 
   describe('8. DEFAULT_WORKSPACE_FILTERS Invariants', () => {
     it('sets expected initial values for phase 1 filter redesign', () => {
-      expect(DEFAULT_WORKSPACE_FILTERS.excludedDistricts).toEqual(['Ate']);
+      expect(DEFAULT_WORKSPACE_FILTERS.excludedDistricts).toEqual([]);
       expect(DEFAULT_WORKSPACE_FILTERS.includedDistricts).toEqual([]);
       expect(DEFAULT_WORKSPACE_FILTERS.keepRemoteWhenDistrictFiltered).toBe(true);
       expect(DEFAULT_WORKSPACE_FILTERS.includeLimaUnspecifiedDistrict).toBe(false);
@@ -615,10 +615,26 @@ describe('Workspace State & Pure Reducer Helpers', () => {
       },
     ];
 
-    it('excludes Ate jobs by default in activas and todas tabs', () => {
+    it('includes all districts including Ate by default in activas and todas tabs', () => {
       const filters: WorkspaceFilters = {
         ...DEFAULT_WORKSPACE_FILTERS,
         crmTab: 'todas',
+      };
+      const result = filterAndSortWorkspaceJobs(districtTestJobs, filters, fixedNow);
+      const ids = result.jobs.map((j) => j.id);
+
+      expect(ids).toContain(101);
+      expect(ids).toContain(102);
+      expect(ids).toContain(103);
+      expect(ids).toContain(104);
+      expect(ids).toContain(105);
+    });
+
+    it('excludes Ate jobs when Ate is explicitly excluded in activas and todas tabs', () => {
+      const filters: WorkspaceFilters = {
+        ...DEFAULT_WORKSPACE_FILTERS,
+        crmTab: 'todas',
+        excludedDistricts: ['Ate'],
       };
       const result = filterAndSortWorkspaceJobs(districtTestJobs, filters, fixedNow);
       const ids = result.jobs.map((j) => j.id);

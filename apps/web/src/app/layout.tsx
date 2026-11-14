@@ -22,8 +22,12 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Job Hunter Agent - Prácticas Preprofesionales',
-  description: 'Radar inteligente de prácticas preprofesionales en Lima, Perú',
+  title: 'ChambaPulse · Prácticas y Empleos Perú',
+  description: 'Radar de prácticas preprofesionales y primer empleo en Lima y todo el Perú',
+  icons: {
+    icon: '/icon.svg',
+    shortcut: '/icon.svg',
+  },
 };
 
 export default function RootLayout({

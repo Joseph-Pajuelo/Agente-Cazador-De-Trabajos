@@ -137,13 +137,11 @@ export function parseFiltersFromSearchParams(
         .filter(Boolean);
     }
   } else {
-    // Guest or profile default
+    // Guest or profile default (no automatic district exclusion by default)
     if (profileExcludedDistricts && profileExcludedDistricts.length > 0) {
       excludedDistricts = [...profileExcludedDistricts];
-    } else if (profileExcludedDistricts && profileExcludedDistricts.length === 0) {
-      excludedDistricts = [];
     } else {
-      excludedDistricts = ['Ate'];
+      excludedDistricts = [];
     }
   }
 
@@ -293,21 +291,17 @@ export function serializeFiltersToSearchParams(
   }
 
   // 3. Excluded districts
-  // Rule: Emit excl=none whenever excludedDistricts is empty []
-  // Otherwise, if differs from profile default (or ['Ate']), emit excl=...
-  if (filters.excludedDistricts.length === 0) {
-    params.set('excl', 'none');
-  } else {
-    const defaultExclusions =
-      profileExcludedDistricts && profileExcludedDistricts.length > 0
-        ? profileExcludedDistricts
-        : ['Ate'];
+  // Keep clean root URL `/` when both filters and profile have zero exclusions.
+  // Emit excl=none only when temporarily overriding non-empty saved profile exclusions.
+  const defaultExclusions = profileExcludedDistricts ?? [];
+  const isSameAsDefault =
+    filters.excludedDistricts.length === defaultExclusions.length &&
+    filters.excludedDistricts.every((d, i) => d === defaultExclusions[i]);
 
-    const isSameAsDefault =
-      filters.excludedDistricts.length === defaultExclusions.length &&
-      filters.excludedDistricts.every((d, i) => d === defaultExclusions[i]);
-
-    if (!isSameAsDefault) {
+  if (!isSameAsDefault) {
+    if (filters.excludedDistricts.length === 0) {
+      params.set('excl', 'none');
+    } else {
       params.set('excl', filters.excludedDistricts.join(','));
     }
   }

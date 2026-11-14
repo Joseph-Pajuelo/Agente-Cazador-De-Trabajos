@@ -269,9 +269,8 @@ describe('Task 6: Unified AppShell, FilterSidebar & JobCard UI Components', () =
       expect(html).toContain('id="filter-english-switch"');
       expect(html).toContain('switch=""');
 
-      // Ate quick exclusion button/toggle
-      expect(html).toContain('Zona Este: Ate');
-      expect(html).toContain('Excluido'); // Ate is in DEFAULT_WORKSPACE_FILTERS.excludedDistricts
+      // Default workspace omits any automatic Zona Este: Ate quick box
+      expect(html).not.toContain('Zona Este: Ate');
     });
 
     it('renders didYouMean suggestion when provided', () => {
@@ -308,17 +307,32 @@ describe('Task 6: Unified AppShell, FilterSidebar & JobCard UI Components', () =
       expect(html).toContain('Limpiar');
     });
 
-    it('immediately renders the removable "No: Ate" chip on DEFAULT_WORKSPACE_FILTERS', () => {
-      const html = renderToStaticMarkup(
+    it('renders NO automatic "No: Ate" chip on DEFAULT_WORKSPACE_FILTERS and renders animated chip when excluded manually', () => {
+      const defaultHtml = renderToStaticMarkup(
         <FilterSidebar
           filters={DEFAULT_WORKSPACE_FILTERS}
           onChange={() => {}}
         />
       );
 
-      expect(html).toContain('data-testid="filter-chips-summary"');
-      expect(html).toContain('No: Ate');
-      expect(html).toContain('Limpiar');
+      expect(defaultHtml).not.toContain('data-testid="filter-chips-summary"');
+      expect(defaultHtml).not.toContain('No: Ate');
+      expect(defaultHtml).not.toContain('Zona Este: Ate');
+
+      const manualHtml = renderToStaticMarkup(
+        <FilterSidebar
+          filters={{
+            ...DEFAULT_WORKSPACE_FILTERS,
+            excludedDistricts: ['Ate'],
+          }}
+          onChange={() => {}}
+        />
+      );
+
+      expect(manualHtml).toContain('data-testid="filter-chips-summary"');
+      expect(manualHtml).toContain('filter-chip-enter');
+      expect(manualHtml).toContain('No: Ate');
+      expect(manualHtml).toContain('Limpiar');
     });
 
     it('shows chips for each active filter and renders NO empty chip container when zero chips exist', () => {
@@ -451,9 +465,11 @@ describe('Task 6: Unified AppShell, FilterSidebar & JobCard UI Components', () =
         </AppShell>
       );
 
-      // Desktop sidebar
+      // Desktop sidebar (widened to fit Mis Postulaciones cleanly without truncation)
       expect(html).toContain('<aside');
-      expect(html).toContain('w-[232px]');
+      expect(html).toContain('w-[252px]');
+      expect(html).toContain('ChambaPulse');
+      expect(html).not.toContain('Radar Inteligente');
       expect(html).toContain('Radar');
       expect(html).toContain('Mis Postulaciones');
       expect(html).toContain('Mi Perfil');
@@ -496,7 +512,7 @@ describe('Task 6: Unified AppShell, FilterSidebar & JobCard UI Components', () =
       expect(html).toContain('Ingresar');
       expect(html).toContain('Iniciar sesión');
       // Logo link has focus:outline-none and main screen redirect label + section-enter wrapper
-      expect(html).toContain('aria-label="Job Hunter Agent - Ir a la pantalla principal"');
+      expect(html).toContain('aria-label="ChambaPulse - Ir a la pantalla principal"');
       expect(html).toContain('focus:outline-none');
       expect(html).toContain('section-enter');
     });

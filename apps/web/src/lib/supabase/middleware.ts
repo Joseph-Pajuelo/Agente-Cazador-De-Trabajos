@@ -60,6 +60,18 @@ export async function updateSession(request: NextRequest) {
     return response;
   }
 
+  // Skip remote auth verification when the browser carries no Supabase session cookie.
+  const hasSupabaseCookie = request.cookies
+    .getAll()
+    .some((cookie) => cookie.name.startsWith('sb-'));
+  if (!hasSupabaseCookie) {
+    const redirectUrl = shouldRedirectToLogin(pathname, false);
+    if (redirectUrl) {
+      return NextResponse.redirect(new URL(redirectUrl, request.url));
+    }
+    return response;
+  }
+
   try {
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,

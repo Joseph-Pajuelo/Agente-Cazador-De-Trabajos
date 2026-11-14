@@ -607,7 +607,7 @@ export function JobsWorkspace({
     if (filters.search.trim().length > 0) count++;
     count += filters.includedDistricts.length;
 
-    const defaultExcl = profileExcludedDistricts ?? ['Ate'];
+    const defaultExcl = profileExcludedDistricts ?? [];
     const isDefaultExcl =
       filters.excludedDistricts.length === defaultExcl.length &&
       filters.excludedDistricts.every((d, i) => d === defaultExcl[i]);
@@ -656,6 +656,30 @@ export function JobsWorkspace({
         </span>
       )}
     </button>
+  );
+
+  const filterFeedAnimationKey = React.useMemo(
+    () =>
+      [
+        filters.crmTab,
+        filters.sortBy,
+        filters.includedDistricts.join(','),
+        filters.excludedDistricts.join(','),
+        filters.categories.join(','),
+        filters.roleLevels.join(','),
+        filters.modalities.join(','),
+        filters.sources.join(','),
+        filters.salaryFilter,
+        String(filters.maxAgeDays),
+        String(filters.minScore),
+        String(filters.englishOnly),
+        filters.englishLevels.join(','),
+        String(filters.includeDiscardedAi),
+        String(filters.keepRemoteWhenDistrictFiltered),
+        String(filters.includeLimaUnspecifiedDistrict),
+        filters.search.trim().length > 0 ? 'has-search' : 'no-search',
+      ].join('|'),
+    [filters]
   );
 
   return (
@@ -750,7 +774,7 @@ export function JobsWorkspace({
                       key={tab.key}
                       type="button"
                       onClick={() => setFilters((prev) => ({ ...prev, crmTab: tab.key }))}
-                      className={`inline-flex items-center gap-2 whitespace-nowrap rounded-xl px-4 py-2 text-sm font-bold transition-all cursor-pointer ${
+                      className={`interactive-pill inline-flex items-center gap-2 whitespace-nowrap rounded-xl px-4 py-2 text-sm font-bold transition-all cursor-pointer ${
                         isActive
                           ? 'bg-[#2563EB] text-white shadow-sm'
                           : 'bg-white text-slate-600 border border-slate-200 hover:bg-blue-50/60 hover:text-[#2563EB] hover:border-blue-200'
@@ -834,7 +858,7 @@ export function JobsWorkspace({
                   </button>
                 </div>
               ) : (
-                <div key={filters.crmTab} className="space-y-3 section-enter">
+                <div key={filterFeedAnimationKey} className="space-y-3 feed-filter-enter feed-stagger-cards">
                   {filteredJobs.map((job) => (
                     <JobCard
                       key={job.deduplication_hash || job.id}

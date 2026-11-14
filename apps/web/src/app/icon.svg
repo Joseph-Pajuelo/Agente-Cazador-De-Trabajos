@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <rect width="64" height="64" rx="16" fill="#FFFFFF" />
+  <rect x="3" y="3" width="58" height="58" rx="14" stroke="#2563EB" stroke-width="5" />
+  <!-- Minimalist Andean Chakana stepped cross (subtle blue left, deep navy right) -->
+  <path
+    d="M25 13H32V51H25V44H19V38H13V26H19V20H25V13Z"
+    fill="#2563EB"
+  />
+  <path
+    d="M32 13H39V20H45V26H51V38H45V44H39V51H32V13Z"
+    fill="#0F172A"
+  />
+  <!-- White halo separation for crisp contrast at 16px favicon size -->
+  <path
+    d="M47.5 16.5L36.8 36.2L16.5 47.5L27.2 27.8L47.5 16.5Z"
+    fill="#FFFFFF"
+  />
+  <!-- Forward career compass needle (Peruvian crimson north-east + navy south-west) -->
+  <path
+    d="M45.5 18.5L35.4 35.1L28.9 28.6L45.5 18.5Z"
+    fill="#DC2626"
+  />
+  <path
+    d="M18.5 45.5L28.9 28.6L35.4 35.1L18.5 45.5Z"
+    fill="#1E3A8A"
+  />
+  <circle cx="32" cy="32" r="3" fill="#FFFFFF" stroke="#0F172A" stroke-width="1.5" />
+</svg>

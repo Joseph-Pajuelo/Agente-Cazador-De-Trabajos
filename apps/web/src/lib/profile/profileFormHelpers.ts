@@ -150,7 +150,7 @@ export function toProfileFormState(profile: UserProfile | null): ProfileFormStat
       university: '',
       current_cycle: '',
       preferred_districts: [],
-      excluded_districts: ['Ate'],
+      excluded_districts: [],
       modality_priority: ['Híbrido', 'Presencial', 'Remoto'],
       target_areas: [],
       core_skills: '',
@@ -181,7 +181,7 @@ export function toProfileFormState(profile: UserProfile | null): ProfileFormStat
       : [],
     excluded_districts: Array.isArray(profile.excluded_districts)
       ? [...profile.excluded_districts]
-      : ['Ate'],
+      : [],
     modality_priority:
       Array.isArray(profile.modality_priority) && profile.modality_priority.length > 0
         ? [...profile.modality_priority]

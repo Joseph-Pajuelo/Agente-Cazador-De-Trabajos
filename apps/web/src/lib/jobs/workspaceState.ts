@@ -64,7 +64,7 @@ export const DEFAULT_WORKSPACE_FILTERS: WorkspaceFilters = {
   sortBy: 'modality_score',
   includeDiscardedAi: false,
   includedDistricts: [],
-  excludedDistricts: ['Ate'],
+  excludedDistricts: [],
   keepRemoteWhenDistrictFiltered: true,
   includeLimaUnspecifiedDistrict: false,
   englishOnly: false,
