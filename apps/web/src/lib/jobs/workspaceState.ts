@@ -1,5 +1,5 @@
 import { JobSummary, CrmStatus } from '../domain/types';
-import { isJobRecent, parseJobDate, sortByModalityThenScore } from '../domain/ranking';
+import { isJobRecent, parseJobDate, sortByModalityThenRecent } from '../domain/ranking';
 import { searchJobs } from '../domain/searchEngine';
 import * as jobNormalization from '../domain/jobNormalization';
 import type { RoleLevel, EnglishLevel } from '../domain/jobNormalization';
@@ -61,7 +61,7 @@ export const DEFAULT_WORKSPACE_FILTERS: WorkspaceFilters = {
   sources: [],
   minScore: 0,
   maxAgeDays: 14,
-  sortBy: 'modality_score',
+  sortBy: 'recent',
   includeDiscardedAi: false,
   includedDistricts: [],
   excludedDistricts: [],
@@ -543,16 +543,10 @@ export function filterAndSortWorkspaceJobs(
     agencyMatchesCount = searchOutcome.agency_matches_count || 0;
   }
 
-  // 12. Sorting
+  // 12. Sorting (neutral: recent or modality priority without personal CV score)
   if (filters.sortBy === 'modality_score') {
-    pool = sortByModalityThenScore(pool);
-  } else if (filters.sortBy === 'score') {
-    pool = [...pool].sort((a, b) => {
-      const scoreA = Number(a.final_ranking_score) || 0;
-      const scoreB = Number(b.final_ranking_score) || 0;
-      return scoreB - scoreA;
-    });
-  } else if (filters.sortBy === 'recent') {
+    pool = sortByModalityThenRecent(pool);
+  } else {
     pool = [...pool].sort((a, b) => {
       const dateA =
         parseJobDate(a.published_date || a.published_at || a.created_at)?.getTime() || 0;

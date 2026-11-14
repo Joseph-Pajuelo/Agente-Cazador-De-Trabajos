@@ -153,11 +153,11 @@ describe('Task 7: JobDetailDrawer & Rewired JobsWorkspace', () => {
       expect(html).toContain('Practicante de Frontend / UI Engineer');
     });
 
-    it('renders collapsible native <details> / <summary> "Ver análisis detallado" with NO <h*> inside <summary>', () => {
+    it('renders neutral detected skills and hides personal-CV AI affinity evaluation and CoT accordion', () => {
       const html = renderToStaticMarkup(
         <JobDetailDrawer
           job={sampleJob}
-          rawDescription="Descripción de prueba completa"
+          rawDescription="Descripción de prueba completa para practicante de frontend."
           reasoningChain={sampleReasoningChain}
           isLoadingDetail={false}
           onClose={() => {}}
@@ -166,58 +166,37 @@ describe('Task 7: JobDetailDrawer & Rewired JobsWorkspace', () => {
         />
       );
 
-      // Verify <details> and <summary> presence
-      expect(html).toContain('<details');
-      expect(html).toContain('<summary');
-      expect(html).toContain('Ver análisis detallado');
+      // Neutral combined detected skills section
+      expect(html).toContain('Tecnologías y requisitos detectados');
+      expect(html).toContain('React');
+      expect(html).toContain('TypeScript');
+      expect(html).toContain('AWS CloudWatch');
 
-      // MWG Constraint: NO <h1>-<h6> headings inside <summary>
-      expect(html).not.toMatch(/<summary[^>]*>(?:(?!<\/summary>)[\s\S])*<h[1-6]/);
-
-      // Verify all 5 ReasoningChain fields are rendered
-      expect(html).toContain('Elegibilidad académica');
-      expect(html).toContain(sampleReasoningChain.academic_eligibility);
-
-      expect(html).toContain('Requisitos de experiencia');
-      expect(html).toContain(sampleReasoningChain.experience_requirements);
-
-      expect(html).toContain('Coincidencia técnica / Stack');
-      expect(html).toContain(sampleReasoningChain.tech_stack_overlap);
-
-      expect(html).toContain('Brechas y riesgos identificados');
-      expect(html).toContain(sampleReasoningChain.gaps_and_risks);
-
-      expect(html).toContain('Fundamento de la puntuación');
-      expect(html).toContain(sampleReasoningChain.score_rationale);
+      // Personal-CV AI evaluation & broken CoT accordion must NOT render
+      expect(html).not.toContain('Evaluación de Afinidad IA');
+      expect(html).not.toContain('Veredicto del Perfil');
+      expect(html).not.toContain('Ver análisis detallado');
+      expect(html).not.toContain('Match técnico:');
+      expect(html).not.toContain('Habilidades y requisitos que cumples');
+      expect(html).not.toContain('Requisitos a reforzar o validar en entrevista');
+      expect(html).not.toContain('Fundamento de la puntuación');
     });
 
-    it('renders always-visible AI compatibility verdict, skills, and scores', () => {
+    it('renders full job description and shows external notice for login-gated CVMatcher previews', () => {
       const html = renderToStaticMarkup(
         <JobDetailDrawer
           job={sampleJob}
-          rawDescription="Descripción completa"
-          reasoningChain={sampleReasoningChain}
+          rawDescription="Resumen corto de CVMatcher..."
           onClose={() => {}}
           onStatusChange={() => {}}
           onSaveNotes={async () => true}
         />
       );
 
-      // Scores
-      expect(html).toContain('94');
-      expect(html).toContain('/100');
-      expect(html).toContain('Match técnico:');
-      expect(html).toContain('92%');
-
-      // Verdict summary
-      expect(html).toContain(sampleJob.verdict_summary!);
-
-      // Matching and missing skills
-      expect(html).toContain('Habilidades y requisitos que cumples');
-      expect(html).toContain('React');
-      expect(html).toContain('TypeScript');
-      expect(html).toContain('Requisitos a reforzar o validar en entrevista');
-      expect(html).toContain('AWS CloudWatch');
+      expect(html).toContain('Descripción completa de la vacante');
+      expect(html).toContain('Resumen corto de CVMatcher...');
+      expect(html).toContain('Abrir vacante original');
+      expect(html).not.toContain('max-h-96 overflow-y-auto');
     });
 
     it('renders 5-state CRM toolbar with active state aria-pressed="true"', () => {
@@ -331,7 +310,10 @@ describe('Task 7: JobDetailDrawer & Rewired JobsWorkspace', () => {
       // Results count & sort dropdown
       expect(html).toContain('vacantes encontradas');
       expect(html).toContain('Ordenar por:');
-      expect(html).toContain('Afinidad + Modalidad');
+      expect(html).toContain('Más recientes');
+      expect(html).toContain('Prioridad por modalidad');
+      expect(html).not.toContain('Afinidad + Modalidad');
+      expect(html).not.toContain('Mayor afinidad');
 
       // Job cards
       expect(html).toContain('Practicante de Frontend / UI Engineer');
@@ -355,7 +337,7 @@ describe('Task 7: JobDetailDrawer & Rewired JobsWorkspace', () => {
       expect(parsed.filters.crmTab).toBe('favorite');
       expect(parsed.filters.excludedDistricts).toEqual([]);
       expect(parsed.hasExplicitExclParam).toBe(true);
-      expect(parsed.filters.sortBy).toBe('score');
+      expect(parsed.filters.sortBy).toBe('recent');
 
       const html = renderToStaticMarkup(
         <JobsWorkspace

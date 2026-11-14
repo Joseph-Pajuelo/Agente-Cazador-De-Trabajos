@@ -22,6 +22,7 @@ import {
 } from '@/lib/pipeline/boardHelpers';
 import { upsertJobState } from '@/actions/crm';
 import { CompanyMonogram } from '@/components/jobs/CompanyMonogram';
+import { collectDetectedSkills } from '@/lib/domain/jobNormalization';
 
 interface PipelineBoardProps {
   initialJobs: JobSummary[];
@@ -47,7 +48,7 @@ export function PipelineBoard({ initialJobs, user }: PipelineBoardProps) {
       const companyMatch = job.company?.toLowerCase().includes(q);
       const locationMatch = job.location?.toLowerCase().includes(q);
       const notesMatch = job.user_notes?.toLowerCase().includes(q);
-      const skillsMatch = job.matching_skills?.some((s) => s.toLowerCase().includes(q));
+      const skillsMatch = collectDetectedSkills(job).some((s) => s.toLowerCase().includes(q));
       return titleMatch || companyMatch || locationMatch || notesMatch || skillsMatch;
     });
   }, [jobs, searchQuery]);
@@ -366,24 +367,11 @@ export function PipelineBoard({ initialJobs, user }: PipelineBoardProps) {
                             </h3>
                           </div>
 
-                          {/* Meta Pills (Modality, Score, Date) */}
+                          {/* Meta Pills (Modality, Date) */}
                           <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
                             <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-700">
                               {job.modality || 'No especificado'}
                             </span>
-
-                            {typeof job.final_ranking_score === 'number' && (
-                              <span
-                                className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-bold border ${
-                                  job.final_ranking_score >= 70
-                                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                                    : 'bg-amber-50 text-amber-800 border-amber-200'
-                                }`}
-                                title={`Puntaje de afinidad IA: ${job.final_ranking_score}/100`}
-                              >
-                                {job.final_ranking_score}% match
-                              </span>
-                            )}
 
                             {formattedApplied && (
                               <span

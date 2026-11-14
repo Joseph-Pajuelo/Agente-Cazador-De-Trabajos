@@ -110,7 +110,8 @@ describe('Task 6: Unified AppShell, FilterSidebar & JobCard UI Components', () =
       expect(html).toContain('S/ 1,800');
       expect(html).toContain('CVMatcher');
       expect(html).toContain('San Isidro');
-      expect(html).toContain('95% afinidad');
+      expect(html).not.toContain('% afinidad');
+      expect(html).not.toContain('95%');
     });
 
     it('renders up to 4 skill pills plus English pill and remaining count', () => {
@@ -343,7 +344,6 @@ describe('Task 6: Unified AppShell, FilterSidebar & JobCard UI Components', () =
         roleLevels: ['preprofesional', 'profesional'] as ('preprofesional' | 'profesional')[],
         modalities: ['Remoto'],
         sources: ['bumeran'],
-        minScore: 70,
       };
 
       const htmlActive = renderToStaticMarkup(
@@ -357,7 +357,9 @@ describe('Task 6: Unified AppShell, FilterSidebar & JobCard UI Components', () =
       expect(htmlActive).toContain('Rol: Profesional');
       expect(htmlActive).toContain('Modalidad: Remoto');
       expect(htmlActive).toContain('Portal: Bumeran');
-      expect(htmlActive).toContain('Afinidad: 70%+');
+      expect(htmlActive).toContain('Incluir ofertas atípicas o no remuneradas');
+      expect(htmlActive).not.toContain('Afinidad IA mínima');
+      expect(htmlActive).not.toContain('descartadas por IA');
 
       // 2. With zero active chips (excludedDistricts cleared and everything else at default)
       const zeroFilters = {

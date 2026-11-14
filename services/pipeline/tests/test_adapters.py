@@ -2,6 +2,8 @@ from adapters.bumeran import BumeranAdapter
 from adapters.linkedin import LinkedInGuestAdapter
 from adapters.computrabajo import ComputrabajoAdapter
 from adapters.cvmatcher import CVMatcherAdapter
+from adapters.practicas_pe import PracticasPeAdapter
+from bs4 import BeautifulSoup
 from ai.matcher import JobMatcherAI
 from config.candidate_profile import CANDIDATE_PROFILE
 from domain.enums import JobSource, Modality
@@ -169,3 +171,25 @@ def test_matcher_distinguishes_preprofesional_vs_profesional():
     assert eval_pre.modality_score == 1.0
     assert eval_pre.location_score == 1.0
     assert eval_pre.final_ranking_score >= 85.0
+
+
+def test_practicas_pe_extract_description_skips_promo_alert_article():
+    html = """
+    <main>
+      <article>
+        <p>Alerta Informativa</p>
+        <p>Diploma GRATUITO de especialización profesional ISO 27001</p>
+      </article>
+      <article>
+        <h3>Requisitos</h3>
+        <p>Estudiante universitario 8° ciclo de Ingeniería de Sistemas. Conocimiento en Python y SQL.</p>
+        <h3>Condiciones del contrato</h3>
+        <p>Subvención: S/ 1,300.00 soles</p>
+      </article>
+    </main>
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    extracted = PracticasPeAdapter.extract_description(soup)
+    assert "Alerta Informativa" not in extracted
+    assert "Requisitos" in extracted
+    assert "Subvención: S/ 1,300.00 soles" in extracted

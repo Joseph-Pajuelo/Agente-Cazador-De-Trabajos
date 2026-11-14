@@ -924,3 +924,30 @@ export function normalizeJobMetadata(input: JobNormalizationInput): NormalizedJo
     salary_max,
   };
 }
+
+/**
+ * Combines and deduplicates skills/requirements detected in a listing without
+ * splitting them against any specific user's CV.
+ */
+export function collectDetectedSkills(job: {
+  matching_skills?: string[] | null;
+  missing_skills?: string[] | null;
+}): string[] {
+  const seen = new Set<string>();
+  const combined: string[] = [];
+
+  for (const group of [job.matching_skills, job.missing_skills]) {
+    if (!Array.isArray(group)) continue;
+    for (const raw of group) {
+      const trimmed = typeof raw === 'string' ? raw.trim() : '';
+      if (!trimmed) continue;
+      const key = trimmed.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        combined.push(trimmed);
+      }
+    }
+  }
+
+  return combined;
+}

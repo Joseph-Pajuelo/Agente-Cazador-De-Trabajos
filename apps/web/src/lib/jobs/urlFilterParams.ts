@@ -224,9 +224,8 @@ export function parseFiltersFromSearchParams(
         .filter(Boolean)
     : [];
 
-  // Score
-  const scoreParam = getParam(params, 'score');
-  const minScore = scoreParam && !isNaN(Number(scoreParam)) ? Number(scoreParam) : 0;
+  // Score filter removed from public workspace until user-owned CV evaluation lands
+  const minScore = 0;
 
   // CRM Tab
   const tabParam = getParam(params, 'tab');
@@ -235,12 +234,12 @@ export function parseFiltersFromSearchParams(
       ? (tabParam as WorkspaceCrmTab)
       : 'activas';
 
-  // Sort
+  // Sort (coerce legacy 'score' links to neutral 'recent')
   const sortParam = getParam(params, 'sort');
   const sortBy: WorkspaceSortBy =
-    sortParam && VALID_SORT_BYS.has(sortParam as WorkspaceSortBy)
+    sortParam && VALID_SORT_BYS.has(sortParam as WorkspaceSortBy) && sortParam !== 'score'
       ? (sortParam as WorkspaceSortBy)
-      : 'modality_score';
+      : DEFAULT_WORKSPACE_FILTERS.sortBy;
 
   // Selected job
   const jobParam = getParam(params, 'job');
@@ -373,18 +372,17 @@ export function serializeFiltersToSearchParams(
     params.set('src', filters.sources.join(','));
   }
 
-  // 15. Min Score
-  if (typeof filters.minScore === 'number' && filters.minScore > 0) {
-    params.set('score', String(filters.minScore));
-  }
-
   // 16. CRM Tab
   if (filters.crmTab && filters.crmTab !== 'activas') {
     params.set('tab', filters.crmTab);
   }
 
   // 17. Sort By
-  if (filters.sortBy && filters.sortBy !== 'modality_score') {
+  if (
+    filters.sortBy &&
+    filters.sortBy !== DEFAULT_WORKSPACE_FILTERS.sortBy &&
+    filters.sortBy !== 'score'
+  ) {
     params.set('sort', filters.sortBy);
   }
 

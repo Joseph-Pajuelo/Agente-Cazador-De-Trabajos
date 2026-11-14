@@ -3,7 +3,6 @@
 import React from 'react';
 import {
   User,
-  Sparkles,
   MapPin,
   GraduationCap,
   CheckCircle2,
@@ -126,19 +125,6 @@ export function ProfileForm({ initialProfile, userEmail }: ProfileFormProps) {
               Personaliza tus datos académicos, distritos de interés y habilidades técnicas.
             </p>
           </div>
-        </div>
-      </div>
-
-      {/* Transparent Editorial Callout (Phase 2 Note) */}
-      <div className="flex items-start gap-3 rounded-2xl border border-blue-200 bg-blue-50/70 p-4 text-sm text-blue-950 shadow-2xs">
-        <Sparkles className="h-5 w-5 shrink-0 text-blue-800 mt-0.5" />
-        <div className="space-y-1">
-          <p className="font-semibold text-blue-900">
-            Evaluación personalizada en camino (Fase 2)
-          </p>
-          <p className="text-xs text-blue-900/80 leading-relaxed">
-            Tus preferencias de distrito, modalidad y tecnologías se guardan de forma permanente en tu cuenta. En la próxima fase, el motor de IA re-evaluará automáticamente todas las vacantes del radar ponderando específicamente tu perfil y ciclo académico. Por ahora, se aplica la evaluación base global compartida.
-          </p>
         </div>
       </div>
 

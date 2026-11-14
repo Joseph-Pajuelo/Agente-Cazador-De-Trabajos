@@ -412,7 +412,7 @@ describe('Workspace State & Pure Reducer Helpers', () => {
       expect(result.correctedQuery).toBe('python');
     });
 
-    it('sorts by modality priority (Híbrido > Presencial > Remoto) then score', () => {
+    it('sorts by modality priority (Híbrido > Presencial > Remoto) then recency', () => {
       const filters: WorkspaceFilters = {
         ...DEFAULT_WORKSPACE_FILTERS,
         crmTab: 'todas',
@@ -421,10 +421,10 @@ describe('Workspace State & Pure Reducer Helpers', () => {
       };
       const result = filterAndSortWorkspaceJobs(sampleJobs, filters, fixedNow);
       expect(result.jobs[0].modality).toBe('Híbrido');
-      expect(result.jobs[0].final_ranking_score).toBe(92.5); // BCP job 1
+      expect(result.jobs[0].id).toBe(1); // Most recent Híbrido job (BCP 2026-11-10)
     });
 
-    it('sorts by score descending when sortBy is "score"', () => {
+    it('falls back to descending recency when legacy sortBy is "score"', () => {
       const filters: WorkspaceFilters = {
         ...DEFAULT_WORKSPACE_FILTERS,
         crmTab: 'todas',
@@ -432,10 +432,11 @@ describe('Workspace State & Pure Reducer Helpers', () => {
         sortBy: 'score',
       };
       const result = filterAndSortWorkspaceJobs(sampleJobs, filters, fixedNow);
-      for (let i = 0; i < result.jobs.length - 1; i++) {
-        const cur = Number(result.jobs[i].final_ranking_score) || 0;
-        const next = Number(result.jobs[i + 1].final_ranking_score) || 0;
-        expect(cur).toBeGreaterThanOrEqual(next);
+      const timestamps = result.jobs.map((j) =>
+        new Date(j.published_at || j.published_date || 0).getTime()
+      );
+      for (let i = 0; i < timestamps.length - 1; i++) {
+        expect(timestamps[i]).toBeGreaterThanOrEqual(timestamps[i + 1]);
       }
     });
   });

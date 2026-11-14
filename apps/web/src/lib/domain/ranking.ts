@@ -201,6 +201,36 @@ export function sortByModalityThenScore<
   });
 }
 
+export function sortByModalityThenRecent<
+  T extends {
+    modality?: string;
+    published_date?: string | null;
+    published_at?: string | null;
+    created_at?: string | null;
+  }
+>(jobs: readonly T[]): T[] {
+  return [...jobs].sort((a, b) => {
+    const modA =
+      a.modality && Object.hasOwn(MODALITY_ORDER, a.modality)
+        ? MODALITY_ORDER[a.modality]
+        : 9;
+    const modB =
+      b.modality && Object.hasOwn(MODALITY_ORDER, b.modality)
+        ? MODALITY_ORDER[b.modality]
+        : 9;
+
+    if (modA !== modB) {
+      return modA - modB;
+    }
+
+    const dateA =
+      parseJobDate(a.published_date || a.published_at || a.created_at)?.getTime() || 0;
+    const dateB =
+      parseJobDate(b.published_date || b.published_at || b.created_at)?.getTime() || 0;
+    return dateB - dateA;
+  });
+}
+
 export function isRecommended(
   job: {
     is_pre_professional?: boolean;

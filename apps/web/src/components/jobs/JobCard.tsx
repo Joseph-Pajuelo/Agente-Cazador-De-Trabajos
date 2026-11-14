@@ -17,6 +17,7 @@ import {
 import { JobSummary, CrmStatus, CRM_STATUS_META, SOURCE_LABELS } from '@/lib/domain/types';
 import { getJobAgePill } from '@/lib/domain/ranking';
 import { resolveJobNormalizedMeta } from '@/lib/jobs/workspaceState';
+import { collectDetectedSkills } from '@/lib/domain/jobNormalization';
 import { CompanyMonogram } from './CompanyMonogram';
 
 export interface JobCardProps {
@@ -116,36 +117,6 @@ export function JobCard({
   const agePill = React.useMemo(() => getJobAgePill(job), [job]);
   const meta = React.useMemo(() => resolveJobNormalizedMeta(job), [job]);
 
-  const score = Number(job.final_ranking_score) || 0;
-  const roundedScore = Math.round(score);
-  const scoreBadgeConfig = React.useMemo(() => {
-    if (score >= 80) {
-      return {
-        bg: 'bg-emerald-50 text-emerald-800 border-emerald-200',
-        ringStroke: '#10B981',
-        ringTrack: '#D1FAE5',
-        ringText: 'text-emerald-700',
-        label: `${roundedScore}% afinidad`,
-      };
-    }
-    if (score >= 60) {
-      return {
-        bg: 'bg-blue-50 text-blue-800 border-blue-200',
-        ringStroke: '#2563EB',
-        ringTrack: '#DBEAFE',
-        ringText: 'text-[#2563EB]',
-        label: `${roundedScore}% afinidad`,
-      };
-    }
-    return {
-      bg: 'bg-amber-50 text-amber-800 border-amber-200',
-      ringStroke: '#F59E0B',
-      ringTrack: '#FEF3C7',
-      ringText: 'text-amber-700',
-      label: `${roundedScore}% afinidad`,
-    };
-  }, [score, roundedScore]);
-
   const locationString = React.useMemo(() => {
     if (meta.district && meta.district !== 'Lima Metropolitana' && meta.district !== 'Remoto') {
       return `Lima, ${meta.district}${meta.lima_zone ? ` · ${meta.lima_zone}` : ''}`;
@@ -157,12 +128,12 @@ export function JobCard({
   }, [meta.district, meta.lima_zone, job.location]);
 
   const { displaySkills, remainingCount } = React.useMemo(() => {
-    const all = Array.isArray(job.matching_skills) ? job.matching_skills : [];
+    const all = collectDetectedSkills(job);
     return {
       displaySkills: all.slice(0, 4),
       remainingCount: Math.max(0, all.length - 4),
     };
-  }, [job.matching_skills]);
+  }, [job]);
 
   const handleCrmClick = (status: CrmStatus) => (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -174,10 +145,6 @@ export function JobCard({
   };
 
   const portalLabel = SOURCE_LABELS[job.source] || job.source;
-  const ringRadius = 18;
-  const ringCircumference = 2 * Math.PI * ringRadius;
-  const ringDashoffset =
-    ringCircumference - (Math.min(100, Math.max(15, roundedScore)) / 100) * ringCircumference;
 
   return (
     <article
@@ -280,41 +247,6 @@ export function JobCard({
                 </span>
               )}
             </div>
-          </div>
-
-          {/* Right Circular Affinity Ring (CVMatcher style) */}
-          <div className="shrink-0 flex flex-col items-center justify-center pl-1">
-            <div className="relative flex h-12 w-12 items-center justify-center">
-              <svg className="h-12 w-12 -rotate-90" viewBox="0 0 44 44" aria-hidden="true">
-                <circle
-                  cx="22"
-                  cy="22"
-                  r={ringRadius}
-                  fill="none"
-                  stroke={scoreBadgeConfig.ringTrack}
-                  strokeWidth="3.5"
-                />
-                <circle
-                  cx="22"
-                  cy="22"
-                  r={ringRadius}
-                  fill="none"
-                  stroke={scoreBadgeConfig.ringStroke}
-                  strokeWidth="3.5"
-                  strokeLinecap="round"
-                  strokeDasharray={ringCircumference}
-                  strokeDashoffset={ringDashoffset}
-                />
-              </svg>
-              <span className={`absolute text-xs font-extrabold ${scoreBadgeConfig.ringText}`}>
-                {roundedScore}%
-              </span>
-            </div>
-            <span
-              className={`mt-1 rounded-md border px-1.5 py-0.5 text-[10px] font-bold ${scoreBadgeConfig.bg}`}
-            >
-              {scoreBadgeConfig.label}
-            </span>
           </div>
         </div>
 

@@ -440,21 +440,11 @@ export function FilterSidebar({
       });
     }
 
-    // 11. Minimum AI score
-    if (filters.minScore > 0) {
-      list.push({
-        id: 'min-score',
-        label: `Afinidad: ${filters.minScore}%+`,
-        onRemove: () => onChange({ ...filters, minScore: 0 }),
-        colorClass: 'bg-violet-50 border-violet-200 text-violet-900',
-      });
-    }
-
-    // 12. Include AI discarded
+    // 11. Include atypical / unpaid / senior listings
     if (filters.includeDiscardedAi) {
       list.push({
         id: 'discarded-ai',
-        label: 'Incluye descartadas IA',
+        label: 'Incluye ofertas atípicas',
         onRemove: () => onChange({ ...filters, includeDiscardedAi: false }),
         colorClass: 'bg-rose-50 border-rose-200 text-rose-800',
       });
@@ -978,10 +968,10 @@ export function FilterSidebar({
               />
               <div>
                 <span className="font-medium text-slate-800">
-                  Incluir ofertas descartadas por IA
+                  Incluir ofertas atípicas o no remuneradas
                 </span>
                 <span className="block text-[11px] text-slate-500 leading-tight mt-0.5">
-                  Muestra convocatorias con requisitos irreales o sospechosas
+                  Muestra convocatorias sin sueldo o con requisitos poco realistas
                 </span>
               </div>
             </label>
@@ -1100,48 +1090,6 @@ export function FilterSidebar({
               </label>
             );
           })}
-        </div>
-      </details>
-
-      {/* ------------------------------------------------------------- */}
-      {/* 9. Afinidad IA Mínima Accordion                               */}
-      {/* ------------------------------------------------------------- */}
-      <details className="border-b border-slate-200 group">
-        <summary className="flex items-center justify-between p-4 cursor-pointer select-none font-bold text-[15px] text-slate-900 hover:text-[#2563EB] transition-colors">
-          <span className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-[#2563EB]" />
-            <span>Afinidad IA mínima</span>
-          </span>
-          <ChevronDown className="h-4 w-4 text-slate-500 details-chevron" />
-        </summary>
-
-        <div className="filter-details-body px-4 pb-4 space-y-3">
-          <div className="grid grid-cols-2 gap-2">
-            {(
-              [
-                [0, 'Todas (0%)'],
-                [50, 'Media (50%+)'],
-                [70, 'Alta (70%+)'],
-                [80, 'Top (80%+)'],
-              ] as const
-            ).map(([score, label]) => {
-              const isSelected = filters.minScore === score;
-              return (
-                <button
-                  key={`score-${score}`}
-                  type="button"
-                  onClick={() => onChange({ ...filters, minScore: score })}
-                  className={`interactive-pill rounded-lg px-2 py-1.5 text-xs font-semibold border transition-colors ${
-                    isSelected
-                      ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
-                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                  }`}
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
         </div>
       </details>
     </aside>

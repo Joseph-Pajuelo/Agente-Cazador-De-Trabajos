@@ -81,6 +81,34 @@ class PracticasPeAdapter(BaseJobAdapter):
 
         return company, title
 
+    @staticmethod
+    def extract_description(detail_soup: BeautifulSoup) -> str:
+        """
+        Extrae el texto principal de una oferta en practicas.pe ignorando
+        cajas promocionales (<article> de Alerta Informativa).
+        """
+        candidates: List[str] = []
+        for article in detail_soup.select("article"):
+            text = article.get_text("\n", strip=True)
+            lowered = text.lower()
+            if (
+                lowered.startswith("alerta\ninformativa")
+                or lowered.startswith("alerta informativa")
+                or ("diploma gratuito" in lowered and "requisitos" not in lowered)
+            ):
+                continue
+            if text:
+                candidates.append(text)
+
+        if candidates:
+            return max(candidates, key=len)
+
+        main_tag = detail_soup.select_one("main")
+        if main_tag:
+            return main_tag.get_text("\n", strip=True)
+
+        return detail_soup.get_text("\n", strip=True)
+
     def fetch_listings(self, limit: int = 15, known_urls: set[str] | None = None) -> List[JobListing]:
         results: List[JobListing] = []
         seen_urls = set(known_urls or ())
@@ -128,13 +156,8 @@ class PracticasPeAdapter(BaseJobAdapter):
                             raw_header = h1.get_text(strip=True) if h1 else anchor_text
                             company, title = self._extract_company_and_title(raw_header)
 
-                            # Obtener descripción principal
-                            article = detail_soup.select_one("article")
-                            if article:
-                                raw_desc = article.get_text("\n", strip=True)
-                            else:
-                                main_tag = detail_soup.select_one("main")
-                                raw_desc = main_tag.get_text("\n", strip=True) if main_tag else detail_soup.get_text("\n", strip=True)
+                            # Obtener descripción principal ignorando banners promocionales
+                            raw_desc = self.extract_description(detail_soup)
 
                             # Detectar modalidad y remuneración
                             modality = self._detect_modality(raw_desc)
@@ -149,7 +172,7 @@ class PracticasPeAdapter(BaseJobAdapter):
                                 location="Lima, Perú",
                                 modality=modality,
                                 url=href,
-                                raw_description=raw_desc[:3500], # truncar por seguridad
+                                raw_description=raw_desc[:4000], # truncar por seguridad
                                 salary=salary
                             )
                             listing.compute_hash()

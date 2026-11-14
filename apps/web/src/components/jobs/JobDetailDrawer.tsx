@@ -6,7 +6,6 @@ import {
   ExternalLink,
   ChevronLeft,
   ChevronRight,
-  ChevronDown,
   Sparkles,
   MapPin,
   Building2,
@@ -32,6 +31,7 @@ import {
   ReasoningChain,
 } from '@/lib/domain/types';
 import { getJobAgePill } from '@/lib/domain/ranking';
+import { collectDetectedSkills } from '@/lib/domain/jobNormalization';
 import { resolveJobNormalizedMeta } from '@/lib/jobs/workspaceState';
 import { isPointerEventOutsideRect } from '@/lib/auth/authHelpers';
 import { CompanyMonogram } from './CompanyMonogram';
@@ -61,7 +61,6 @@ const CRM_BUTTONS: { status: CrmStatus; label: string; icon: React.ElementType }
 interface JobDetailDrawerContentProps {
   job: JobSummary;
   rawDescription?: string | null;
-  reasoningChain?: ReasoningChain | null;
   isLoadingDetail?: boolean;
   onClose: () => void;
   onPrevJob?: () => void;
@@ -75,7 +74,6 @@ interface JobDetailDrawerContentProps {
 function JobDetailDrawerContent({
   job,
   rawDescription,
-  reasoningChain,
   isLoadingDetail = false,
   onClose,
   onPrevJob,
@@ -119,11 +117,7 @@ function JobDetailDrawerContent({
     }
   };
 
-  const score = Number(job.final_ranking_score) || 0;
-  const techScore =
-    job.technical_match_score !== undefined && job.technical_match_score !== null
-      ? Math.round(Number(job.technical_match_score) * 100)
-      : null;
+  const detectedSkills = React.useMemo(() => collectDetectedSkills(job), [job]);
 
   return (
     <div
@@ -376,171 +370,35 @@ function JobDetailDrawerContent({
           </div>
         </section>
 
-        {/* 4. Always-visible AI Compatibility Verdict */}
-        <section
-          aria-labelledby="drawer-ai-verdict-title"
-          className="rounded-2xl border border-blue-100 bg-blue-50/40 p-4 sm:p-5 space-y-4"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-1.5 text-xs font-bold text-[#1E3A8A] mb-1">
-                <Sparkles className="h-3.5 w-3.5 text-blue-700" />
-                <span>Evaluación de Afinidad IA</span>
-              </div>
+        {/* 4. Neutral Detected Skills & Requirements */}
+        {detectedSkills.length > 0 && (
+          <section
+            aria-labelledby="drawer-detected-skills-title"
+            className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4 sm:p-5 space-y-3"
+          >
+            <div className="flex items-center gap-2">
+              <Briefcase className="h-4 w-4 text-[#2563EB]" />
               <h3
-                id="drawer-ai-verdict-title"
-                className="text-base font-bold text-slate-900"
+                id="drawer-detected-skills-title"
+                className="text-sm font-bold text-slate-900"
               >
-                Veredicto del Perfil
+                Tecnologías y requisitos detectados
               </h3>
             </div>
-
-            <div className="text-right">
-              <div className="text-2xl font-extrabold text-[#1E3A8A] font-mono">
-                {Math.round(score)}
-                <span className="text-sm font-normal text-slate-500">/100</span>
-              </div>
-              {techScore !== null && (
-                <div className="text-[11px] text-slate-500 font-medium">
-                  Match técnico: <strong>{techScore}%</strong>
-                </div>
-              )}
+            <div className="flex flex-wrap gap-1.5">
+              {detectedSkills.map((skill) => (
+                <span
+                  key={skill}
+                  className="rounded-lg bg-white px-2.5 py-1 text-xs font-medium text-slate-700 border border-slate-200/90 shadow-[0_1px_1px_rgba(15,23,42,0.03)]"
+                >
+                  {skill}
+                </span>
+              ))}
             </div>
-          </div>
+          </section>
+        )}
 
-          {/* Editorial Summary */}
-          {job.verdict_summary ? (
-            <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">
-              {job.verdict_summary}
-            </p>
-          ) : (
-            <p className="text-xs text-slate-500 italic">
-              Evaluación pendiente de procesamiento o precalificación estándar.
-            </p>
-          )}
-
-          {/* Matched & Missing Skills */}
-          <div className="space-y-3 pt-2 border-t border-blue-100/80">
-            {job.matching_skills && job.matching_skills.length > 0 && (
-              <div>
-                <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider mb-1.5 flex items-center gap-1">
-                  <CheckCircle2 className="h-3 w-3 text-emerald-600" />
-                  Habilidades y requisitos que cumples
-                </span>
-                <div className="flex flex-wrap gap-1.5">
-                  {job.matching_skills.map((skill) => (
-                    <span
-                      key={skill}
-                      className="rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800 border border-emerald-200"
-                    >
-                      {skill}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {job.missing_skills && job.missing_skills.length > 0 && (
-              <div>
-                <span className="text-[11px] font-bold text-amber-800 uppercase tracking-wider mb-1.5 flex items-center gap-1">
-                  <XCircle className="h-3 w-3 text-amber-600" />
-                  Requisitos a reforzar o validar en entrevista
-                </span>
-                <div className="flex flex-wrap gap-1.5">
-                  {job.missing_skills.map((skill) => (
-                    <span
-                      key={skill}
-                      className="rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 border border-amber-200"
-                    >
-                      {skill}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* 5. Collapsible Native <details> / <summary> "Ver análisis detallado" (CoT) */}
-        <details className="group rounded-2xl border border-slate-200 bg-white p-4 transition-colors">
-          <summary className="flex cursor-pointer items-center justify-between font-semibold text-slate-800 select-none">
-            <span className="flex items-center gap-2 text-sm text-[#1E3A8A]">
-              <Sparkles className="h-4 w-4 text-blue-700" />
-              <span>Ver análisis detallado</span>
-            </span>
-            <ChevronDown className="h-4 w-4 text-slate-500 details-chevron transition-transform duration-200" />
-          </summary>
-
-          <div className="mt-4 pt-3 border-t border-slate-100 space-y-4 text-xs text-slate-700">
-            {isLoadingDetail ? (
-              <div className="space-y-3 animate-pulse">
-                <div className="h-4 w-2/5 rounded bg-slate-200" />
-                <div className="h-10 w-full rounded bg-slate-100" />
-                <div className="h-4 w-2/5 rounded bg-slate-200" />
-                <div className="h-10 w-full rounded bg-slate-100" />
-              </div>
-            ) : reasoningChain ? (
-              <>
-                {reasoningChain.academic_eligibility && (
-                  <div className="space-y-1">
-                    <span className="font-bold text-slate-900 block">
-                      Elegibilidad académica
-                    </span>
-                    <p className="leading-relaxed text-slate-700">
-                      {reasoningChain.academic_eligibility}
-                    </p>
-                  </div>
-                )}
-                {reasoningChain.experience_requirements && (
-                  <div className="space-y-1">
-                    <span className="font-bold text-slate-900 block">
-                      Requisitos de experiencia
-                    </span>
-                    <p className="leading-relaxed text-slate-700">
-                      {reasoningChain.experience_requirements}
-                    </p>
-                  </div>
-                )}
-                {reasoningChain.tech_stack_overlap && (
-                  <div className="space-y-1">
-                    <span className="font-bold text-slate-900 block">
-                      Coincidencia técnica / Stack
-                    </span>
-                    <p className="leading-relaxed text-slate-700">
-                      {reasoningChain.tech_stack_overlap}
-                    </p>
-                  </div>
-                )}
-                {reasoningChain.gaps_and_risks && (
-                  <div className="space-y-1">
-                    <span className="font-bold text-slate-900 block">
-                      Brechas y riesgos identificados
-                    </span>
-                    <p className="leading-relaxed text-slate-700">
-                      {reasoningChain.gaps_and_risks}
-                    </p>
-                  </div>
-                )}
-                {reasoningChain.score_rationale && (
-                  <div className="space-y-1">
-                    <span className="font-bold text-slate-900 block">
-                      Fundamento de la puntuación
-                    </span>
-                    <p className="leading-relaxed text-slate-700">
-                      {reasoningChain.score_rationale}
-                    </p>
-                  </div>
-                )}
-              </>
-            ) : (
-              <p className="text-slate-500 italic">
-                Análisis detallado de razonamiento no disponible para esta vacante.
-              </p>
-            )}
-          </div>
-        </details>
-
-        {/* 6. Personal Notes Form */}
+        {/* 5. Personal Notes Form */}
         <section aria-labelledby="drawer-personal-notes-title" className="space-y-2">
           <div className="flex items-center justify-between">
             <h3
@@ -608,8 +466,31 @@ function JobDetailDrawerContent({
               <div className="h-4 w-4/5 rounded bg-slate-200" />
             </div>
           ) : rawDescription ? (
-            <div className="rounded-xl border border-slate-200 bg-slate-50/40 p-4 text-xs sm:text-sm text-slate-800 whitespace-pre-line leading-relaxed max-h-96 overflow-y-auto">
-              {rawDescription}
+            <div className="space-y-3">
+              <div className="rounded-xl border border-slate-200 bg-slate-50/40 p-4 text-xs sm:text-sm text-slate-800 whitespace-pre-line leading-relaxed">
+                {rawDescription}
+              </div>
+              {(job.source === 'cvmatcher' ||
+                rawDescription.trim().endsWith('...') ||
+                rawDescription.includes('CVMatcher solo expone el resumen')) &&
+                job.url && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50/70 px-3.5 py-2.5 text-xs text-amber-900">
+                    <span>
+                      {job.source === 'cvmatcher'
+                        ? 'Este portal requiere sesión propia para ver toda la ficha; aquí ves el resumen disponible.'
+                        : 'Este registro solo incluye un extracto preliminar; puedes revisar la ficha original en el portal.'}
+                    </span>
+                    <a
+                      href={job.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-white px-2.5 py-1 text-xs font-semibold text-[#1E3A8A] border border-amber-300 hover:bg-amber-100/60 transition-colors"
+                    >
+                      <span>Abrir vacante original</span>
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                )}
             </div>
           ) : (
             <div className="rounded-xl border border-slate-200 bg-slate-50/40 p-4 text-xs text-slate-500 italic">
@@ -625,7 +506,6 @@ function JobDetailDrawerContent({
 export function JobDetailDrawer({
   job,
   rawDescription,
-  reasoningChain,
   isLoadingDetail = false,
   onClose,
   onPrevJob,
@@ -730,7 +610,6 @@ export function JobDetailDrawer({
         <JobDetailDrawerContent
           job={job}
           rawDescription={rawDescription}
-          reasoningChain={reasoningChain}
           isLoadingDetail={isLoadingDetail}
           onClose={handleClose}
           onPrevJob={onPrevJob}

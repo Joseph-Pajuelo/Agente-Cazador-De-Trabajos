@@ -66,7 +66,7 @@ describe('urlFilterParams: Bi-directional URL SearchParams Serializer', () => {
       expect(parsed.filters.modalities).toEqual(['Remoto']);
       expect(parsed.filters.salaryFilter).toBe('gte_1500');
       expect(parsed.filters.sources).toEqual(['bumeran', 'linkedin']);
-      expect(parsed.filters.minScore).toBe(80);
+      expect(parsed.filters.minScore).toBe(0);
       expect(parsed.filters.crmTab).toBe('favorite');
       expect(parsed.filters.sortBy).toBe('recent');
       expect(parsed.urlSelectedJobId).toBe(42);
@@ -171,9 +171,9 @@ describe('urlFilterParams: Bi-directional URL SearchParams Serializer', () => {
       expect(params.get('mod')).toBe('Híbrido');
       expect(params.get('sal')).toBe('gte_2000');
       expect(params.get('src')).toBe('computrabajo');
-      expect(params.get('score')).toBe('70');
+      expect(params.get('score')).toBeNull();
       expect(params.get('tab')).toBe('to_apply');
-      expect(params.get('sort')).toBe('score');
+      expect(params.get('sort')).toBeNull();
       expect(params.get('job')).toBe('99');
     });
 
@@ -183,7 +183,7 @@ describe('urlFilterParams: Bi-directional URL SearchParams Serializer', () => {
         crmTab: 'favorite',
         modalities: ['Remoto', 'Presencial'],
         sources: ['practicas_pe', 'linkedin'],
-        minScore: 75,
+        minScore: 0,
         maxAgeDays: 7,
         sortBy: 'recent',
         includeDiscardedAi: true,

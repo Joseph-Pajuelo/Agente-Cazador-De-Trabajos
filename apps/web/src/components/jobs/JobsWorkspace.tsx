@@ -634,7 +634,6 @@ export function JobsWorkspace({
     if (!isDefaultMods) count += filters.modalities.length;
 
     count += filters.sources.length;
-    if (filters.minScore > 0) count++;
     if (filters.includeDiscardedAi) count++;
     if (filters.maxAgeDays !== 14) count++;
 
@@ -829,9 +828,8 @@ export function JobsWorkspace({
                     }
                     className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 shadow-2xs focus:border-[#2563EB] focus:outline-none"
                   >
-                    <option value="modality_score">Afinidad + Modalidad</option>
-                    <option value="score">Mayor afinidad</option>
                     <option value="recent">Más recientes</option>
+                    <option value="modality_score">Prioridad por modalidad</option>
                   </select>
                 </div>
               </div>
