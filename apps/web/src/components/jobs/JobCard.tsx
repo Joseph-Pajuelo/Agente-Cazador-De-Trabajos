@@ -42,11 +42,13 @@ function renderPortalSourceBadge(source: string, label: string) {
   if (norm.includes('bumeran')) {
     return (
       <span className="inline-flex items-center gap-1.5 rounded-lg bg-white px-2.5 py-1 text-xs font-extrabold text-[#1E3A8A] border border-slate-200 shadow-2xs">
-        <svg viewBox="0 0 18 18" className="h-3.5 w-3.5 shrink-0" aria-hidden="true">
-          <path d="M4 3l6 6-6 6" stroke="#EC4899" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-          <path d="M9 3l5 6-5 6" stroke="#2563EB" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-        </svg>
-        <span className="tracking-tight text-[#1E293B]">{label}</span>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/sources/bumeran.webp"
+          alt=""
+          className="h-3.5 w-auto object-contain"
+        />
+        <span className="sr-only">{label}</span>
       </span>
     );
   }
@@ -54,10 +56,13 @@ function renderPortalSourceBadge(source: string, label: string) {
   if (norm.includes('linkedin')) {
     return (
       <span className="inline-flex items-center gap-1.5 rounded-lg bg-white px-2.5 py-1 text-xs font-extrabold text-[#0A66C2] border border-blue-200/80 shadow-2xs">
-        <span className="inline-flex h-4 w-4 items-center justify-center rounded bg-[#0A66C2] text-[10px] font-black text-white leading-none">
-          in
-        </span>
-        <span>{label}</span>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/sources/linkedin.webp"
+          alt=""
+          className="h-3.5 w-auto object-contain"
+        />
+        <span className="sr-only">{label}</span>
       </span>
     );
   }
@@ -65,17 +70,20 @@ function renderPortalSourceBadge(source: string, label: string) {
   if (norm.includes('computrabajo')) {
     return (
       <span className="inline-flex items-center gap-1.5 rounded-lg bg-white px-2.5 py-1 text-xs font-extrabold text-[#0039A6] border border-orange-200/80 shadow-2xs">
-        <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-[#FF5A00] text-[10px] font-black text-white leading-none">
-          C
-        </span>
-        <span>{label}</span>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/sources/computrabajo.webp"
+          alt=""
+          className="h-3.5 w-auto object-contain"
+        />
+        <span className="sr-only">{label}</span>
       </span>
     );
   }
 
   if (norm.includes('practicas')) {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50/80 px-2.5 py-1 text-xs font-extrabold text-emerald-900 border border-emerald-200 shadow-2xs">
+      <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50/90 px-2.5 py-1 text-xs font-extrabold text-emerald-900 border border-emerald-200 shadow-2xs">
         <span className="inline-flex h-4 w-4 items-center justify-center rounded bg-emerald-600 text-[10px] font-black text-white leading-none">
           P
         </span>
@@ -85,11 +93,14 @@ function renderPortalSourceBadge(source: string, label: string) {
   }
 
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-lg bg-blue-50/90 px-2.5 py-1 text-xs font-extrabold text-[#2563EB] border border-blue-200 shadow-2xs">
-      <span className="inline-flex h-4 w-4 items-center justify-center rounded bg-[#2563EB] text-[9px] font-black text-white leading-none">
-        CV
-      </span>
-      <span>{label}</span>
+    <span className="inline-flex items-center gap-1.5 rounded-lg bg-white px-2.5 py-1 text-xs font-extrabold text-[#2563EB] border border-blue-200 shadow-2xs">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/sources/cvmatcher.webp"
+        alt=""
+        className="h-3.5 w-auto object-contain"
+      />
+      <span className="sr-only">{label}</span>
     </span>
   );
 }
@@ -227,6 +238,7 @@ export function JobCard({
           <CompanyMonogram
             brandKey={job.resolved_brand_key}
             companyName={job.company}
+            logoUrl={job.company_logo_url}
             size="lg"
           />
 

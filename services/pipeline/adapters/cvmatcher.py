@@ -48,9 +48,16 @@ class CVMatcherAdapter(BaseJobAdapter):
                 m = re.search(r"/sources/([a-z0-9_\-]+)\.", src_img["src"])
                 if m:
                     origin = m.group(1)
+            logo_url = None
+            logo_img = card.select_one("img[alt^='Logo de ']")
+            if logo_img and logo_img.get("src"):
+                src_val = logo_img["src"].strip()
+                if src_val.startswith("http"):
+                    logo_url = src_val
             results.append({
                 "title": title_el.get_text(strip=True),
                 "company": company,
+                "company_logo_url": logo_url,
                 "location": location,
                 "url": link["href"],
                 "origin": origin,
@@ -85,6 +92,7 @@ class CVMatcherAdapter(BaseJobAdapter):
                             modality=detect_modality(item["title"]),
                             url=item["url"],
                             raw_description=description,
+                            company_logo_url=item.get("company_logo_url"),
                         )
                         listing.compute_hash()
                         listings.append(listing)

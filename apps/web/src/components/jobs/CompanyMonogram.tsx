@@ -6,6 +6,7 @@ import { getBrand, resolveEmployer } from '@/lib/domain/companies';
 interface CompanyMonogramProps {
   brandKey?: string | null;
   companyName?: string | null;
+  logoUrl?: string | null;
   size?: 'sm' | 'md' | 'lg';
   className?: string;
 }
@@ -21,8 +22,128 @@ const VIBRANT_PALETTE = [
 ];
 
 /**
+ * Official company logos extracted from Bumeran, LinkedIn, CompuTrabajo & CVMatcher.
+ */
+const OFFICIAL_BRAND_LOGOS: Record<string, string> = {
+  scotiabank:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_13080984_bum_vd450e092.jpg',
+  bbva:
+    'https://media.licdn.com/dms/image/v2/D560BAQGJbdXwhVZL8A/company-logo_100_100/B56ZbzLj14HUAU-/0/1747836616734/bbva_peru_logo?e=2147483647&v=beta&t=Y6KD7Ro2OonrCj1CJf2kuXTmId908Df6gQb54op3Rz0',
+  bcp:
+    'https://media.licdn.com/dms/image/v2/D4E0BAQERqP4i3nph_A/company-logo_100_100/company-logo_100_100/0/1712770863639/banco_de_credito_bcp_logo?e=1796256000&v=beta&t=aLVMx86h4FW-1qYq-ULs6zTIvgJ_On-uA19DGVdqTy4',
+  interbank:
+    'https://kgmltevsabbsdxyzwuvn.supabase.co/storage/v1/object/public/assets/sources/interbank.webp',
+  alfin:
+    'https://media.licdn.com/dms/image/v2/D4E0BAQEhOD1LoTY78g/company-logo_400_400/company-logo_400_400/0/1722548193875?e=1795046400&v=beta&t=TS7UUEST665hDrQcS3okncsioxTX8uUbHyz8ObLZWvA',
+  mibanco:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_10105619_bum_v5f55ce6e.jpg',
+  banbif:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_1573110_bum_v7581ea3e.jpg',
+  bcrp:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_13134648_bum_vc2c52a7d.jpg',
+  sbs:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_10168695_bum_v86cb2db1.jpg',
+  indecopi:
+    'https://kgmltevsabbsdxyzwuvn.supabase.co/storage/v1/object/public/assets/business/indecopi_logo.png',
+  ey:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_2497140_bum_v12fff06b.jpg',
+  kpmg:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_10161211_bum_v3171c198.jpg',
+  deloitte:
+    'https://media.licdn.com/dms/image/v2/C560BAQGNtpblgQpJoQ/company-logo_100_100/company-logo_100_100/0/1662120928214/deloitte_logo?e=1796256000&v=beta&t=wqQ8n7eLjveTPY0NvkJISKFyAO_fhedXBBNLMLs9FOg',
+  pwc:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_2498960_bum_va6ce67e8.jpg',
+  bdo:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_13371495_bum_v55b893c2.jpg',
+  nttdata:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_10006613_bum_vad486271.jpg',
+  indra:
+    'https://imgbum.jobscdn.com/portal/img/empresas/18/static/logoMainPic_2255030_bum_v95a9860f.jpg',
+  inetum:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_1669060_bum_vffb33798.jpg',
+  canvia:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_13122312_bum_v2a5436f4.jpg',
+  tcs:
+    'https://media.licdn.com/dms/image/v2/D4D0BAQGsGR9p4ikS5w/company-logo_100_100/company-logo_100_100/0/1708946550425/tata_consultancy_services_logo?e=1796256000&v=beta&t=-s3l433grn7hYu0LH3Rsv03_HMLXpO3wssHkUcn53Fo',
+  siemens:
+    'https://media.licdn.com/dms/image/v2/D4D0BAQFK_4wGnzwPTQ/company-logo_100_100/company-logo_100_100/0/1719931174735/siemens_logo?e=1796256000&v=beta&t=7iIZdHBm0S5KM7wT0l6-Yh5BsXruVcygyUkQ2WwJ7mc',
+  falabella:
+    'https://ii.ct-stc.com/3/logos/empresas/2024/03/14//falabella-corporativo-peru165827thumbnail.jpeg',
+  ripley:
+    'https://media.licdn.com/dms/image/v2/D4E0BAQHgwK28BEdqtQ/company-logo_100_100/company-logo_100_100/0/1719843991780/banco_ripley_logo?e=1796256000&v=beta&t=AUKAA5RQMbj08HmySEGh3l1hoX_H4i48FJ3mHNN-91Y',
+  pacifico:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_1940770_aviso_1115147743_bum_vb40c9958.jpg',
+  rimac:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_10119945_bum_vb5114443.jpg',
+  positiva:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_1545420_bum_v4d8ae241.jpg',
+  ferreyros:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_13158836_bum_v2d9f28cb.jpg',
+  alicorp:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_1333690_bum_vaa78b909.jpg',
+  gloria:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_937000_bum_v3846fef6.jpg',
+  backus:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_10000282_bum_v7ae1f290.jpg',
+  cencosud:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_10001020_bum_vaec3d713.jpg',
+  promart:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_10160668_bum_vfae67bcd.jpg',
+  oechsle:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_10000231_bum_v241ea17a.jpg',
+  intercorp:
+    'https://ii.ct-stc.com/3/logos/empresas/2024/01/04//grupo-intercorp230649thumbnail.png',
+  izipay:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_10149683_bum_vacd4fc2d.jpg',
+  yape:
+    'https://media.licdn.com/dms/image/v2/D4D0BAQHB7FCb9tzUqw/company-logo_100_100/B4DZxyoH.aGQAQ-/0/1771449647490/yapeoficial_logo?e=1796256000&v=beta&t=WQKPaiLMV38RNpjToJq7b_tfH7VPdF3an32-viFRXEU',
+  entel:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_10108917_bum_v9773eabe.jpg',
+  claro:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_1775880_bum_v90e9b0d3.jpg',
+  movistar:
+    'https://media.licdn.com/dms/image/v2/D4E0BAQFQ1OjwQ2rVbw/company-logo_100_100/company-logo_100_100/0/1727681140503/telefonica_logo?e=2147483647&v=beta&t=7WW4bNv4-K6ebdH6Aoko-BHyxmWNqSkqhsrVxABcRy4',
+  bitel:
+    'https://ii.ct-stc.com/3/logos/empresas/2021/09/20//bitel171636thumbnail.jpeg',
+  luzdelsur:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_10152493_bum_vf5e35bcf.jpg',
+  primax:
+    'https://imgbum.jobscdn.com/portal/img/empresas/0/0/1/0/2/0/9/9/5/1/logoMainPic_10209951_bum_v92ab05a5.jpg',
+  repsol:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_13251616_bum_v3432f568.jpg',
+  manpower:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_10011970_bum_v646cbf9.jpg',
+  adecco:
+    'https://ii.ct-stc.com/3/logos/empresas/2017/02/28/adecco-peru-sa-E540E05432961430162133thumbnail.png',
+  overall:
+    'https://ii.ct-stc.com/3/logos/empresas/2017/07/07/overall-strategy-78599D69D7ADFC84220615thumbnail.jpeg',
+  utp:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_13376106_bum_v6ed00e55.jpg',
+  pucp:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_1722920_bum_v2a7d6c49.jpg',
+  usil:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_1011010_bum_vfb43c80b.jpg',
+  upn:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_10077439_bum_v4dbf9412.jpg',
+  sanna:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_1940770_bum_v10eadda2.jpg',
+  abbott:
+    'https://imgbum.jobscdn.com/portal/img/empresas/0/0/0/1/0/7/4/0/1/0/logoMainPic_1074010_bum_v1f4b9c30.jpg',
+  auna:
+    'https://media.licdn.com/dms/image/v2/D4E0BAQGoTm7iyhQKFw/company-logo_100_100/company-logo_100_100/0/1699996341720?e=2147483647&v=beta&t=PuWKCf89xexoNgJ4d4SAABazvf5f_3DhfQYe6btpiYE',
+  bairesdev:
+    'https://media.licdn.com/dms/image/v2/D4E0BAQGNvQASzrdL_w/company-logo_100_100/company-logo_100_100/0/1687874736484/bairesdev_logo?e=2147483647&v=beta&t=O-1i-F9arEGwUjngSlvE7NWxL-mpYFwN_XZxHy0C03s',
+  coes:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_10087113_bum_vfa71b255.jpg',
+  pacasmayo:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_10002125_bum_v1ecff76d.jpg',
+  cajatrujillo:
+    'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_907780_bum_v1f38bc8f.jpg',
+};
+
+/**
  * Known domains for Peruvian and global employers in Lima's internship market.
- * Used to fetch real high-resolution brand favicons/logos when no custom SVG is defined.
+ * Used as fallback when no direct portal logo or official brand logo URL is available.
  */
 const COMPANY_DOMAINS: Record<string, string> = {
   bcp: 'viabcp.com',
@@ -194,196 +315,172 @@ function extractInitials(name?: string | null): string {
   return (name[0] || 'J').toUpperCase();
 }
 
+/**
+ * Resolves the company's own brand key and domain from `companyName` FIRST,
+ * so agency postings (e.g. ManpowerGroup recruiting for BCP) show ManpowerGroup's
+ * own logo on the avatar instead of overriding it with the client's brandKey.
+ */
 function detectCompanyDomain(
   brandKey?: string | null,
   companyName?: string | null
 ): { key: string; domain: string | null } {
+  const rawName = (companyName || '').toLowerCase().trim();
   const normKey = (brandKey || '').toLowerCase().trim();
-  if (normKey && COMPANY_DOMAINS[normKey]) {
-    return { key: normKey, domain: COMPANY_DOMAINS[normKey] };
-  }
 
-  const rawName = (companyName || '').toLowerCase();
-  if (!rawName) return { key: '', domain: null };
+  if (rawName) {
+    // 1. Direct substring match on companyName first
+    const substringDomains: [RegExp, string, string][] = [
+      [/\bmanpower/i, 'manpower', 'manpowergroup.pe'],
+      [/\badecco\b/i, 'adecco', 'adecco.com.pe'],
+      [/\boverall\b/i, 'overall', 'overall.pe'],
+      [/\bmichael\s*page\b/i, 'michaelpage', 'michaelpage.pe'],
+      [/\bkorn\s*ferry\b/i, 'kornferry', 'kornferry.com'],
+      [/\brandstad\b/i, 'randstad', 'randstad.com'],
+      [/\bscotiabank|scotia\b/i, 'scotiabank', 'scotiabank.com.pe'],
+      [/\bbbva\b/i, 'bbva', 'bbva.pe'],
+      [/\bbcp|banco de cr[eé]dito\b/i, 'bcp', 'viabcp.com'],
+      [/\binterbank\b/i, 'interbank', 'interbank.pe'],
+      [/\bintercorp\b/i, 'intercorp', 'intercorp.com.pe'],
+      [/\bmibanco\b/i, 'mibanco', 'mibanco.com.pe'],
+      [/\bbanbif\b/i, 'banbif', 'banbif.com.pe'],
+      [/\balfin\b/i, 'alfin', 'alfinbanco.pe'],
+      [/\bpac[ií]fico\b/i, 'pacifico', 'pacifico.com.pe'],
+      [/\br[ií]mac\b/i, 'rimac', 'rimac.com'],
+      [/\bpositiva\b/i, 'positiva', 'lapositiva.com.pe'],
+      [/\balicorp\b/i, 'alicorp', 'alicorp.com.pe'],
+      [/\bgloria\b/i, 'gloria', 'grupogloria.com'],
+      [/\bbackus\b/i, 'backus', 'backus.pe'],
+      [/\bferreyros|ferreycorp\b/i, 'ferreyros', 'ferreyros.com.pe'],
+      [/\bentel\b/i, 'entel', 'entel.pe'],
+      [/\bclaro|am[eé]rica m[oó]vil\b/i, 'claro', 'claro.com.pe'],
+      [/\bmovistar|telef[oó]nica\b/i, 'movistar', 'movistar.com.pe'],
+      [/\bbitel\b/i, 'bitel', 'bitel.com.pe'],
+      [/\bluz del sur\b/i, 'luzdelsur', 'luzdelsur.com.pe'],
+      [/\bfalabella|tottus|sodimac\b/i, 'falabella', 'falabella.com.pe'],
+      [/\bripley\b/i, 'ripley', 'ripley.com.pe'],
+      [/\bcencosud|wong|metro\b/i, 'cencosud', 'cencosud.com'],
+      [/\bpromart\b/i, 'promart', 'promart.pe'],
+      [/\boechsle\b/i, 'oechsle', 'oechsle.pe'],
+      [/\bizipay\b/i, 'izipay', 'izipay.pe'],
+      [/\byape\b/i, 'yape', 'yape.com.pe'],
+      [/\bcineplanet\b/i, 'cineplanet', 'cineplanet.com.pe'],
+      [/\bprimax\b/i, 'primax', 'primax.com.pe'],
+      [/\brepsol\b/i, 'repsol', 'repsol.pe'],
+      [/\bbcrp|banco central de reserva\b/i, 'bcrp', 'bcrp.gob.pe'],
+      [/\bsbs|superintendencia de banca\b/i, 'sbs', 'sbs.gob.pe'],
+      [/\bindecopi\b/i, 'indecopi', 'indecopi.gob.pe'],
+      [/\bsunat\b/i, 'sunat', 'www.gob.pe'],
+      [/\bsunarp\b/i, 'sunarp', 'www.gob.pe'],
+      [/\bmincul|ministerio de cultura|ministerio|ugel|gobierno regional\b/i, 'gobpe', 'www.gob.pe'],
+      [/\bcoes\b/i, 'coes', 'coes.org.pe'],
+      [/\bpacasmayo\b/i, 'pacasmayo', 'pacasmayo.com.pe'],
+      [/\bcaja\s*trujillo\b/i, 'cajatrujillo', 'cajatrujillo.com.pe'],
+      [/\bpan american silver\b/i, 'panamericansilver', 'panamericansilver.com'],
+      [/\bbairesdev\b/i, 'bairesdev', 'bairesdev.com'],
+      [/\bntt\s*data|everis\b/i, 'nttdata', 'nttdata.com'],
+      [/\bindra|minsait\b/i, 'indra', 'indracompany.com'],
+      [/\binetum\b/i, 'inetum', 'inetum.com'],
+      [/\bcanvia\b/i, 'canvia', 'canvia.com'],
+      [/\btata consultancy|tcs\b/i, 'tcs', 'tcs.com'],
+      [/\bsiemens\b/i, 'siemens', 'siemens.com'],
+      [/\bglobant\b/i, 'globant', 'globant.com'],
+      [/\bey\b|ernst\s*&\s*young/i, 'ey', 'ey.com'],
+      [/\bdeloitte\b/i, 'deloitte', 'deloitte.com'],
+      [/\bpwc|pricewaterhouse/i, 'pwc', 'pwc.com'],
+      [/\bkpmg\b/i, 'kpmg', 'kpmg.com'],
+      [/\bbdo\b/i, 'bdo', 'bdo.com.pe'],
+      [/\butp|universidad tecnol[oó]gica\b/i, 'utp', 'utp.edu.pe'],
+      [/\bpucp|cat[oó]lica del per[uú]\b/i, 'pucp', 'pucp.edu.pe'],
+      [/\busil\b/i, 'usil', 'usil.edu.pe'],
+      [/\bupn|privada del norte\b/i, 'upn', 'upn.edu.pe'],
+      [/\bupc|laureate|cibertec\b/i, 'upc', 'upc.edu.pe'],
+      [/\bauna\b/i, 'auna', 'auna.pe'],
+      [/\bsanna\b/i, 'sanna', 'sanna.pe'],
+      [/\babbott\b/i, 'abbott', 'abbott.com'],
+      [/\baviva\b/i, 'aviva', 'aviva.pe'],
+      [/\bvml\b/i, 'vml', 'vml.com'],
+      [/\bcoface\b/i, 'coface', 'coface.com'],
+      [/\bvainsa\b/i, 'vainsa', 'vainsa.com'],
+      [/\braura\b/i, 'raura', 'raura.com.pe'],
+      [/\bca[j]a arequipa\b/i, 'cajaarequipa', 'cajaarequipa.pe'],
+    ];
 
-  // Check via resolveEmployer from companies.ts
-  const resolved = resolveEmployer(companyName || '', '', '');
-  if (resolved.brand?.key && COMPANY_DOMAINS[resolved.brand.key]) {
-    return { key: resolved.brand.key, domain: COMPANY_DOMAINS[resolved.brand.key] };
-  }
-
-  // Direct substring match for common Peruvian companies not in BRANDS
-  const substringDomains: [RegExp, string, string][] = [
-    [/\bscotiabank|scotia\b/i, 'scotiabank', 'scotiabank.com.pe'],
-    [/\bbbva\b/i, 'bbva', 'bbva.pe'],
-    [/\bbcp|banco de cr[eé]dito\b/i, 'bcp', 'viabcp.com'],
-    [/\binterbank\b/i, 'interbank', 'interbank.pe'],
-    [/\bmibanco\b/i, 'mibanco', 'mibanco.com.pe'],
-    [/\balfin\b/i, 'alfin', 'alfinbanco.pe'],
-    [/\bpac[ií]fico\b/i, 'pacifico', 'pacifico.com.pe'],
-    [/\br[ií]mac\b/i, 'rimac', 'rimac.com'],
-    [/\balicorp\b/i, 'alicorp', 'alicorp.com.pe'],
-    [/\bferreyros|ferreycorp\b/i, 'ferreyros', 'ferreyros.com.pe'],
-    [/\bentel\b/i, 'entel', 'entel.pe'],
-    [/\bclaro|am[eé]rica m[oó]vil\b/i, 'claro', 'claro.com.pe'],
-    [/\bmovistar|telef[oó]nica\b/i, 'movistar', 'movistar.com.pe'],
-    [/\bfalabella|tottus|sodimac\b/i, 'falabella', 'falabella.com.pe'],
-    [/\bripley\b/i, 'ripley', 'ripley.com.pe'],
-    [/\bcencosud|wong|metro\b/i, 'cencosud', 'cencosud.com'],
-    [/\bcineplanet\b/i, 'cineplanet', 'cineplanet.com.pe'],
-    [/\bprimax\b/i, 'primax', 'primax.com.pe'],
-    [/\bbcrp|banco central de reserva\b/i, 'bcrp', 'bcrp.gob.pe'],
-    [/\bsunat\b/i, 'sunat', 'sunat.gob.pe'],
-    [/\bsunarp\b/i, 'sunarp', 'gob.pe'],
-    [/\bmincul|ministerio de cultura|ministerio|ugel|gobierno regional\b/i, 'gobpe', 'gob.pe'],
-    [/\bcoes\b/i, 'coes', 'coes.org.pe'],
-    [/\bpan american silver\b/i, 'panamericansilver', 'panamericansilver.com'],
-    [/\bbairesdev\b/i, 'bairesdev', 'bairesdev.com'],
-    [/\bntt\s*data|everis\b/i, 'nttdata', 'nttdata.com'],
-    [/\bindra|minsait\b/i, 'indra', 'indracompany.com'],
-    [/\bglobant\b/i, 'globant', 'globant.com'],
-    [/\bey\b|ernst\s*&\s*young/i, 'ey', 'ey.com'],
-    [/\bdeloitte\b/i, 'deloitte', 'deloitte.com'],
-    [/\bpwc|pricewaterhouse/i, 'pwc', 'pwc.com'],
-    [/\bkpmg\b/i, 'kpmg', 'kpmg.com'],
-    [/\butp|universidad tecnol[oó]gica\b/i, 'utp', 'utp.edu.pe'],
-    [/\bupc|laureate|cibertec\b/i, 'upc', 'upc.edu.pe'],
-    [/\bauna\b/i, 'auna', 'auna.pe'],
-    [/\bsanna\b/i, 'sanna', 'sanna.pe'],
-    [/\baviva\b/i, 'aviva', 'aviva.pe'],
-    [/\bvml\b/i, 'vml', 'vml.com'],
-    [/\bmanpower\b/i, 'manpower', 'manpowergroup.pe'],
-    [/\badecco\b/i, 'adecco', 'adecco.com.pe'],
-    [/\boverall\b/i, 'overall', 'overall.pe'],
-    [/\bcoface\b/i, 'coface', 'coface.com'],
-    [/\bvainsa\b/i, 'vainsa', 'vainsa.com'],
-    [/\braura\b/i, 'raura', 'raura.com.pe'],
-    [/\bca[j]a arequipa\b/i, 'cajaarequipa', 'cajaarequipa.pe'],
-  ];
-
-  for (const [regex, key, domain] of substringDomains) {
-    if (regex.test(rawName)) {
-      return { key, domain };
+    for (const [regex, key, domain] of substringDomains) {
+      if (regex.test(rawName)) {
+        return { key, domain };
+      }
     }
+
+    // 2. Check via resolveEmployer on companyName only
+    const resolved = resolveEmployer(companyName || '', '', '');
+    if (resolved.brand?.key && COMPANY_DOMAINS[resolved.brand.key]) {
+      return { key: resolved.brand.key, domain: COMPANY_DOMAINS[resolved.brand.key] };
+    }
+  }
+
+  // 3. Fallback to brandKey only when companyName is confidential or unrecognized
+  const isConfidential =
+    !rawName ||
+    rawName.includes('confidencial') ||
+    rawName.includes('importante empresa') ||
+    rawName === 'unknown';
+
+  if (isConfidential && normKey && COMPANY_DOMAINS[normKey]) {
+    return { key: normKey, domain: COMPANY_DOMAINS[normKey] };
   }
 
   return { key: normKey, domain: null };
 }
 
-/**
- * Renders crisp inline SVG logos for flagship Peruvian employers (matching CVMatcher style)
- * so top banks and institutions always render vector-sharp without network latency.
- */
-function renderInlineBrandLogo(key: string): React.ReactNode | null {
-  switch (key) {
-    case 'scotiabank':
-      return (
-        <div className="flex flex-col items-center justify-center w-full h-full bg-white p-1">
-          <svg viewBox="0 0 40 30" className="w-7 h-5" aria-hidden="true">
-            <path
-              d="M25.5 3C18.5 3 14 7 14 11.5c0 3.8 2.8 6.2 7.2 7.2 3.2.7 4.8 1.6 4.8 3.3 0 2-2.2 3.5-5.8 3.5-3.2 0-6.2-1.2-8.2-2.8L9.5 26c2.5 2 6.5 3.2 10.8 3.2 7.2 0 11.7-4 11.7-8.7 0-4-2.8-6.4-7.5-7.4-3.2-.7-4.5-1.5-4.5-3.1 0-1.8 2-3.2 5.4-3.2 2.8 0 5.3 1 7.2 2.3L35 5.8C32.5 4 29.2 3 25.5 3z"
-              fill="#EC111A"
-            />
-            <circle cx="20" cy="15" r="3.4" fill="#EC111A" />
-          </svg>
-          <span className="text-[7px] font-extrabold tracking-tight text-[#EC111A] leading-none mt-0.5">
-            Scotiabank
-          </span>
-        </div>
-      );
-    case 'bbva':
-      return (
-        <div className="flex items-center justify-center w-full h-full bg-[#072146] px-1.5">
-          <span className="text-[11px] font-black tracking-wider text-white font-sans">
-            BBVA
-          </span>
-        </div>
-      );
-    case 'bcp':
-      return (
-        <div className="flex items-center justify-center w-full h-full bg-[#002A8D] px-1">
-          <span className="text-[12px] font-black italic tracking-tight text-white">
-            &gt;<span className="text-[#FF7800]">B</span>CP
-          </span>
-        </div>
-      );
-    case 'interbank':
-      return (
-        <div className="flex items-center justify-center w-full h-full bg-[#009B3A] px-1">
-          <span className="text-[9px] font-black tracking-tight text-white">
-            Interbank
-          </span>
-        </div>
-      );
-    case 'alfin':
-      return (
-        <div className="flex flex-col items-center justify-center w-full h-full bg-white px-1">
-          <span className="text-[12px] font-black tracking-tight text-[#FF4713] leading-none">
-            alf<span className="text-[#2563EB]">i</span>n
-          </span>
-          <span className="text-[6px] font-bold text-[#1E3A8A] leading-none mt-0.5">
-            Banco
-          </span>
-        </div>
-      );
-    case 'mibanco':
-      return (
-        <div className="flex items-center justify-center w-full h-full bg-[#00843D] px-1">
-          <span className="text-[9px] font-extrabold text-[#FFD100]">
-            mibanco
-          </span>
-        </div>
-      );
-    case 'ey':
-      return (
-        <div className="flex flex-col items-center justify-center w-full h-full bg-[#2E2E38] px-1">
-          <div className="w-6 h-1.5 bg-[#FFE600] -skew-x-12 mb-0.5" />
-          <span className="text-[12px] font-black text-white leading-none">
-            EY
-          </span>
-        </div>
-      );
-    case 'bcrp':
-      return (
-        <div className="flex flex-col items-center justify-center w-full h-full bg-[#1E3A8A] px-1">
-          <span className="text-[11px] font-black tracking-wider text-[#FBBF24] leading-none">
-            BCRP
-          </span>
-          <span className="text-[6px] font-semibold text-blue-100 leading-none mt-0.5">
-            PERÚ
-          </span>
-        </div>
-      );
-    case 'entel':
-      return (
-        <div className="flex items-center justify-center w-full h-full bg-[#002EFF] px-1">
-          <span className="text-[11px] font-black tracking-tight text-white lowercase">
-            entel<span className="text-[#FF3D00]">)</span>
-          </span>
-        </div>
-      );
-    default:
-      return null;
-  }
-}
-
 export function CompanyMonogram({
   brandKey,
   companyName,
+  logoUrl,
   size = 'md',
   className = '',
 }: CompanyMonogramProps) {
-  const [imgError, setImgError] = React.useState(false);
-  const brand = React.useMemo(() => getBrand(brandKey), [brandKey]);
+  const [failedStage, setFailedStage] = React.useState<number>(0);
 
   const { key: resolvedKey, domain } = React.useMemo(
     () => detectCompanyDomain(brandKey, companyName),
     [brandKey, companyName]
   );
 
+  const brand = React.useMemo(
+    () => getBrand(resolvedKey || brandKey),
+    [resolvedKey, brandKey]
+  );
+
   React.useEffect(() => {
-    setImgError(false);
-  }, [brandKey, companyName]);
+    setFailedStage(0);
+  }, [brandKey, companyName, logoUrl]);
+
+  // Build ordered candidate image URLs:
+  // 1. Direct portal logo URL (`job.company_logo_url`)
+  // 2. Official brand logo URL (`OFFICIAL_BRAND_LOGOS[resolvedKey]`)
+  // 3. High-resolution domain favicon (`Google S2 favicons sz=128`)
+  const candidateUrls = React.useMemo(() => {
+    const urls: string[] = [];
+    if (logoUrl && logoUrl.trim().startsWith('http')) {
+      urls.push(logoUrl.trim());
+    }
+    if (resolvedKey && OFFICIAL_BRAND_LOGOS[resolvedKey]) {
+      const brandUrl = OFFICIAL_BRAND_LOGOS[resolvedKey];
+      if (!urls.includes(brandUrl)) {
+        urls.push(brandUrl);
+      }
+    }
+    if (domain) {
+      const faviconUrl = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128`;
+      if (!urls.includes(faviconUrl)) {
+        urls.push(faviconUrl);
+      }
+    }
+    return urls;
+  }, [logoUrl, resolvedKey, domain]);
+
+  const activeImageUrl =
+    failedStage < candidateUrls.length ? candidateUrls[failedStage] : null;
 
   const initials = React.useMemo(() => {
     if (brand?.code) {
@@ -415,31 +512,20 @@ export function CompanyMonogram({
     lg: 'h-16 w-16 text-base font-extrabold rounded-2xl',
   }[size];
 
-  const inlineLogo = renderInlineBrandLogo(resolvedKey);
-  if (inlineLogo) {
+  if (activeImageUrl) {
     return (
       <div
-        className={`inline-flex shrink-0 items-center justify-center overflow-hidden border border-slate-200 bg-white shadow-xs select-none ${sizeClasses} ${className}`}
-        aria-hidden="true"
-      >
-        {inlineLogo}
-      </div>
-    );
-  }
-
-  if (domain && !imgError) {
-    return (
-      <div
-        className={`inline-flex shrink-0 items-center justify-center overflow-hidden border border-slate-200 bg-white p-2 shadow-xs select-none ${sizeClasses} ${className}`}
+        className={`inline-flex shrink-0 items-center justify-center overflow-hidden border border-slate-200/90 bg-white p-1.5 shadow-2xs select-none ${sizeClasses} ${className}`}
         aria-hidden="true"
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128`}
+          src={activeImageUrl}
           alt=""
           loading="lazy"
-          onError={() => setImgError(true)}
-          className="h-full w-full object-contain"
+          referrerPolicy="no-referrer"
+          onError={() => setFailedStage((prev) => prev + 1)}
+          className="h-full w-full object-contain rounded-lg"
         />
       </div>
     );

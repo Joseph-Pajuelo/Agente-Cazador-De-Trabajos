@@ -47,10 +47,17 @@ class LinkedInGuestAdapter(BaseJobAdapter):
             loc_el = card.select_one(".job-search-card__location")
             link_el = card.select_one("a.base-card__full-link")
             date_el = card.select_one("time")
+            logo_img = card.select_one("img.artdeco-entity-image") or card.select_one("img")
+            logo_url = None
+            if logo_img:
+                cand_logo = (logo_img.get("data-delayed-url") or logo_img.get("src") or "").strip()
+                if cand_logo.startswith("http") and "static.licdn.com/aero-v1" not in cand_logo:
+                    logo_url = cand_logo
             results.append({
                 "job_id": urn_el["data-entity-urn"].split(":")[-1],
                 "title": title_el.get_text(strip=True),
                 "company": company_el.get_text(strip=True) if company_el else "No especificado",
+                "company_logo_url": logo_url,
                 "location": loc_el.get_text(strip=True) if loc_el else "Lima, Perú",
                 "url": (link_el["href"].split("?")[0] if link_el else ""),
                 "published_at": date_el.get("datetime") if date_el else None,
@@ -121,6 +128,7 @@ class LinkedInGuestAdapter(BaseJobAdapter):
                         url=item["url"] or f"https://www.linkedin.com/jobs/view/{item['job_id']}",
                         raw_description=description[:4000],
                         published_at=item["published_at"],
+                        company_logo_url=item.get("company_logo_url"),
                     )
                     listing.compute_hash()
                     listings.append(listing)

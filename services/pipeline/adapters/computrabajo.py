@@ -61,6 +61,18 @@ class ComputrabajoAdapter(BaseJobAdapter):
         box = soup.select_one("div[div-link='oferta']") or soup.select_one("main")
         return box.get_text("\n", strip=True) if box else ""
 
+    @staticmethod
+    def parse_detail_logo(html: str) -> str | None:
+        if not html:
+            return None
+        soup = BeautifulSoup(html, "html.parser")
+        for img in soup.select("img"):
+            src = (img.get("src") or img.get("data-src") or "").strip()
+            if "ii.ct-stc.com" in src and "logos/empresas" in src:
+                normalized = "https:" + src if src.startswith("//") else src
+                return normalized.replace(" ", "%20")
+        return None
+
     def fetch_listings(self, limit: int = 15, known_urls: set[str] | None = None) -> List[JobListing]:
         found: Dict[str, Dict] = {}
         skip_urls = set(known_urls or ())
@@ -82,6 +94,7 @@ class ComputrabajoAdapter(BaseJobAdapter):
             for item in found.values():
                 resp = self._get(client, item["url"])
                 description = self.parse_detail(resp.text) if resp else ""
+                logo_url = self.parse_detail_logo(resp.text) if resp else None
                 if not description:
                     description = f"{item['title']} en {item['company']} ({item['location']})."
                 salary_match = re.search(r"S/\.?\s*[\d,\.]+", description)
@@ -95,6 +108,7 @@ class ComputrabajoAdapter(BaseJobAdapter):
                         url=item["url"],
                         raw_description=description[:4000],
                         salary=salary_match.group(0) if salary_match else None,
+                        company_logo_url=logo_url,
                     )
                     listing.compute_hash()
                     listings.append(listing)

@@ -162,7 +162,7 @@ python services/pipeline/scripts/migrate_sqlite_to_supabase.py
 pip install -r services/pipeline/requirements.txt
 
 # Ejecutar escaneo conectando directamente a Supabase
-python services/pipeline/run.py --limit 10 --no-pdf --backend supabase
+python services/pipeline/run.py --limit 40 --no-pdf --backend supabase
 ```
 
 ### Paso 4: Ejecutar la Aplicación Web (Next.js)

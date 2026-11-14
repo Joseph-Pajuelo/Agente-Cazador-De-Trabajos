@@ -129,6 +129,7 @@ export interface JobSummary {
   created_at?: string;
 
   // Precomputed employer metadata
+  company_logo_url?: string | null;
   resolved_brand_key: string | null;
   resolved_via_agency: boolean;
   agency_clue: string;

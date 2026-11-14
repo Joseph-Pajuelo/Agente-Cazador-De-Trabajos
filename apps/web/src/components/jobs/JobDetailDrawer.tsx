@@ -137,6 +137,7 @@ function JobDetailDrawerContent({
             <CompanyMonogram
               brandKey={job.resolved_brand_key}
               companyName={job.company}
+              logoUrl={job.company_logo_url}
               size="lg"
             />
             <div className="min-w-0 flex-1">

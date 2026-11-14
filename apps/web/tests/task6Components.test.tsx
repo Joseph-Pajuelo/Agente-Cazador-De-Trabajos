@@ -183,6 +183,55 @@ describe('Task 6: Unified AppShell, FilterSidebar & JobCard UI Components', () =
       expect(html).toContain('BCP');
       expect(html).toContain('(Cliente sector financiero)');
     });
+
+    it('renders real company logo image and official portal webp badge, preserving agency logo identity', () => {
+      const withPortalLogo: JobSummary = {
+        ...sampleJob,
+        source: 'bumeran',
+        company: 'Grupo Scotiabank',
+        company_logo_url:
+          'https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_13080984_bum_vd450e092.jpg',
+      };
+
+      const htmlWithLogo = renderToStaticMarkup(
+        <JobCard job={withPortalLogo} isSelected={false} onSelect={() => {}} />
+      );
+      expect(htmlWithLogo).toContain(
+        'src="https://imgbum.jobscdn.com/portal/img/empresas/11/static/logoMainPic_13080984_bum_vd450e092.jpg"'
+      );
+      expect(htmlWithLogo).toContain('src="/sources/bumeran.webp"');
+
+      // Agency posting without company_logo_url must resolve agency logo (Manpower), NOT client brandKey (BCP)
+      const agencyWithoutLogo: JobSummary = {
+        ...sampleJob,
+        source: 'computrabajo',
+        company: 'ManpowerGroup',
+        company_logo_url: null,
+        resolved_via_agency: true,
+        resolved_brand_key: 'bcp',
+      };
+
+      const htmlAgency = renderToStaticMarkup(
+        <JobCard job={agencyWithoutLogo} isSelected={false} onSelect={() => {}} />
+      );
+      expect(htmlAgency).toContain('src="/sources/computrabajo.webp"');
+      expect(htmlAgency).toContain('logoMainPic_10011970_bum_v646cbf9.jpg');
+      expect(htmlAgency).not.toContain('banco_de_credito_bcp_logo');
+
+      // Confidential posting falls back to resolved_brand_key logo (BCP)
+      const confidentialAgency: JobSummary = {
+        ...sampleJob,
+        company: 'Empresa confidencial',
+        company_logo_url: null,
+        resolved_via_agency: true,
+        resolved_brand_key: 'bcp',
+      };
+
+      const htmlConfidential = renderToStaticMarkup(
+        <JobCard job={confidentialAgency} isSelected={false} onSelect={() => {}} />
+      );
+      expect(htmlConfidential).toContain('banco_de_credito_bcp_logo');
+    });
   });
 
   describe('2. FilterSidebar Component', () => {

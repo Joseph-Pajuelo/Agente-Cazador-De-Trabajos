@@ -62,6 +62,7 @@ class SupabaseRepository(JobRepository):
             "raw_description": listing.raw_description,
             "published_at": listing.published_at,
             "published_date": enrichment["published_date"],
+            "company_logo_url": listing.company_logo_url,
             "resolved_brand_key": enrichment["resolved_brand_key"],
             "resolved_via_agency": bool(enrichment["resolved_via_agency"]),
             "agency_clue": enrichment["agency_clue"] or "",

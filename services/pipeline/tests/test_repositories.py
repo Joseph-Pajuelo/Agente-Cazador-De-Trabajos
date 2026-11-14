@@ -109,6 +109,7 @@ def test_supabase_repository_insert_listing_and_evaluation():
         url="https://bumeran.com.pe/job/10",
         raw_description="Automatización de procesos con Python.",
         published_at="2026-11-10",
+        company_logo_url="https://imgbum.jobscdn.com/bcp.jpg",
     )
 
     # 1. Insert listing (new)
@@ -122,6 +123,7 @@ def test_supabase_repository_insert_listing_and_evaluation():
     upsert_payload = call_args[0]
     assert call_kwargs.get("on_conflict") == "deduplication_hash"
     assert upsert_payload["deduplication_hash"] == listing.deduplication_hash
+    assert upsert_payload["company_logo_url"] == "https://imgbum.jobscdn.com/bcp.jpg"
     assert upsert_payload["resolved_brand_key"] == "bcp"
     assert upsert_payload["published_date"] == "2026-11-10"
     assert upsert_payload["status"] == "PENDING_EVALUATION"

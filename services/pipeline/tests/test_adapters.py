@@ -14,19 +14,34 @@ def test_bumeran_parse_api_items():
             "id": 1118484847,
             "titulo": "Practicante Pre Profesional de Sistemas",
             "empresa": "SONDA",
+            "logoURL": "https://imgbum.jobscdn.com/portal/img/empresas/11/static/logo_sonda.jpg",
             "confidencial": False,
             "localizacion": "San Isidro, Lima",
             "modalidadTrabajo": "Híbrido",
             "detalle": "<p>Buscamos estudiante de 8vo ciclo con conocimientos en Python, SQL y Power BI. S/ 1,300</p>",
             "fechaPublicacion": "30-10-2026",
-        }
+        },
+        {
+            "id": 1118484848,
+            "titulo": "Practicante de TI",
+            "empresa": "Empresa Privada",
+            "logoURL": "https://imgbum.jobscdn.com/portal/img/empresas/11/static/logo_secret.jpg",
+            "confidencial": True,
+            "localizacion": "Lima",
+            "modalidadTrabajo": "Presencial",
+            "detalle": "<p>Estudiante de Sistemas</p>",
+            "fechaPublicacion": "30-10-2026",
+        },
     ]
     parsed = BumeranAdapter.parse_api_items(mock_items)
-    assert len(parsed) == 1
+    assert len(parsed) == 2
     assert parsed[0]["company"] == "SONDA"
+    assert parsed[0]["company_logo_url"] == "https://imgbum.jobscdn.com/portal/img/empresas/11/static/logo_sonda.jpg"
     assert parsed[0]["modality"] == Modality.HIBRIDO
     assert parsed[0]["salary"] == "S/ 1,300"
     assert "Python" in parsed[0]["raw_description"]
+    assert parsed[1]["company"] == "Empresa confidencial"
+    assert parsed[1]["company_logo_url"] is None
 
 
 def test_linkedin_parse_search_results():
@@ -34,6 +49,7 @@ def test_linkedin_parse_search_results():
     <ul>
       <li>
         <div data-entity-urn="urn:li:jobPosting:999888"></div>
+        <img class="artdeco-entity-image" data-delayed-url="https://media.licdn.com/dms/image/v2/interbank/company-logo_100_100/logo"/>
         <h3 class="base-search-card__title">Practicante de Datos e IA</h3>
         <h4 class="base-search-card__subtitle">Interbank</h4>
         <span class="job-search-card__location">La Victoria, Lima, Perú</span>
@@ -45,6 +61,7 @@ def test_linkedin_parse_search_results():
     assert len(results) == 1
     assert results[0]["job_id"] == "999888"
     assert results[0]["company"] == "Interbank"
+    assert results[0]["company_logo_url"] == "https://media.licdn.com/dms/image/v2/interbank/company-logo_100_100/logo"
     assert results[0]["location"] == "La Victoria, Lima, Perú"
 
 
@@ -62,10 +79,17 @@ def test_computrabajo_parse_search_results():
     assert results[0]["company"] == "BCP"
     assert results[0]["location"] == "La Molina, Lima"
 
+    detail_html = '<div><img src="//ii.ct-stc.com/3/logos/empresas/2026/j v resguardos.png"/></div>'
+    assert (
+        ComputrabajoAdapter.parse_detail_logo(detail_html)
+        == "https://ii.ct-stc.com/3/logos/empresas/2026/j%20v%20resguardos.png"
+    )
+
 
 def test_cvmatcher_parse_search_results():
     sample_html = """
     <div class="w-full shadow rounded-[20px]">
+      <img alt="Logo de Alicorp" src="https://imgbum.jobscdn.com/alicorp.jpg"/>
       <h4>Practicante Pre Profesional de Datos</h4>
       <p>Alicorp</p>
       <p>Lima</p>
@@ -76,6 +100,7 @@ def test_cvmatcher_parse_search_results():
     results = CVMatcherAdapter.parse_search_results(sample_html)
     assert len(results) == 1
     assert results[0]["company"] == "Alicorp"
+    assert results[0]["company_logo_url"] == "https://imgbum.jobscdn.com/alicorp.jpg"
     assert results[0]["origin"] == "bumeran"
 
 

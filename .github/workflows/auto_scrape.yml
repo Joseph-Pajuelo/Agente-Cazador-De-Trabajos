@@ -14,7 +14,7 @@ permissions:
 jobs:
   scrape-and-evaluate:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Clonar repositorio
         uses: actions/checkout@v4
@@ -37,4 +37,4 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          python services/pipeline/run.py --limit 10 --no-pdf --backend supabase
+          python services/pipeline/run.py --limit 40 --no-pdf --backend supabase

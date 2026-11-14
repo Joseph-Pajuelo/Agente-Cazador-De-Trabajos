@@ -15,6 +15,7 @@ class JobListing(BaseModel):
     raw_description: str = Field(..., description="Texto completo de la vacante")
     salary: Optional[str] = Field(default=None, description="Remuneración si está disponible")
     published_at: Optional[str] = Field(default=None, description="Fecha de publicación")
+    company_logo_url: Optional[str] = Field(default=None, description="URL oficial del logo de la empresa ofertante")
     deduplication_hash: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

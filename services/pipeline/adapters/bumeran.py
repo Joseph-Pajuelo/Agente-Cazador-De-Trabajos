@@ -72,8 +72,10 @@ class BumeranAdapter(BaseJobAdapter):
             if not job_id or not title:
                 continue
             company = (item.get("empresa") or "Empresa confidencial").strip()
+            logo_url = (item.get("logoURL") or "").strip() or None
             if item.get("confidencial"):
                 company = "Empresa confidencial"
+                logo_url = None
             location = (item.get("localizacion") or "Lima, Perú").strip()
             detail_text = cls._clean_detail(item.get("detalle") or "")
             modality = cls._map_modality(item.get("modalidadTrabajo"), detail_text)
@@ -82,6 +84,7 @@ class BumeranAdapter(BaseJobAdapter):
                 "job_id": job_id,
                 "title": title,
                 "company": company,
+                "company_logo_url": logo_url,
                 "location": location,
                 "modality": modality,
                 "url": f"https://www.bumeran.com.pe/empleos/{job_id}.html",
@@ -140,6 +143,7 @@ class BumeranAdapter(BaseJobAdapter):
                             raw_description=parsed["raw_description"][:4000],
                             salary=parsed["salary"],
                             published_at=parsed["published_at"],
+                            company_logo_url=parsed.get("company_logo_url"),
                         )
                         listing.compute_hash()
                         listings.append(listing)

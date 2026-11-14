@@ -145,6 +145,6 @@ El repositorio incluye el workflow [`.github/workflows/auto_scrape.yml`](file://
 2. Selecciona **Auto-Scan Job Portals (7 AM & 2 PM Peru)** en la barra lateral.
 3. Haz clic en el botón desplegable **Run workflow** y confirma **Run workflow**.
 4. El pipeline ejecutará:
-   - Extracción de Bumeran, LinkedIn, CompuTrabajo, Practicas.pe y CVMatcher.
-   - Evaluación estructurada con Gemini 3.8 Flash (`--limit 10`).
+   - Extracción de Bumeran, LinkedIn, CompuTrabajo, Practicas.pe y CVMatcher (incluyendo `company_logo_url`).
+   - Evaluación estructurada con Gemini 3.8 Flash (`--limit 40`).
    - Inserción directa en Supabase vía HTTPS sin alterar el historial Git del repositorio.
