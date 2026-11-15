@@ -57,7 +57,7 @@ def get_repository(backend: str = "auto") -> JobRepository:
     """Factory para resolver la implementación de JobRepository según el parámetro o entorno."""
     selected = backend.lower().strip()
     if selected == "auto":
-        if os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_SERVICE_ROLE_KEY"):
+        if os.environ.get("SUPABASE_URL", "").strip() and os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip():
             selected = "supabase"
         else:
             selected = "sqlite"

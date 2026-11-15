@@ -16,11 +16,32 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Validar secrets requeridos en GitHub Actions
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          missing=()
+          if [ -z "$(printf '%s' "$SUPABASE_URL" | tr -d '[:space:]')" ]; then
+            missing+=("SUPABASE_URL")
+          fi
+          if [ -z "$(printf '%s' "$SUPABASE_SERVICE_ROLE_KEY" | tr -d '[:space:]')" ]; then
+            missing+=("SUPABASE_SERVICE_ROLE_KEY")
+          fi
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error title=Faltan Secrets en GitHub Actions::Faltan los secrets ${missing[*]} en Settings > Secrets and variables > Actions del repositorio."
+            exit 1
+          fi
+          if [ -z "$(printf '%s' "$GEMINI_API_KEY" | tr -d '[:space:]')" ]; then
+            echo "::warning title=GEMINI_API_KEY no configurada::Falta GEMINI_API_KEY en Secrets; el pipeline usará evaluación heurística."
+          fi
+
       - name: Clonar repositorio
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Configurar Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: "pip"

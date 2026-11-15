@@ -388,3 +388,36 @@ def test_resolve_owner_user_id_not_found_skips_crm_and_never_falls_back():
     assert stats["inserted_crm_states"] == 0
     user_job_states_table.insert.assert_not_called()
 
+
+def test_supabase_repository_strips_credentials_and_rejects_blank_env(monkeypatch):
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_SERVICE_ROLE_KEY", raising=False)
+
+    with pytest.raises(ValueError, match="SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY"):
+        SupabaseRepository()
+
+    monkeypatch.setenv("SUPABASE_URL", "   ")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "\n")
+    with pytest.raises(ValueError, match="SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY"):
+        SupabaseRepository()
+
+    created_args = {}
+
+    def fake_create_client(url, key):
+        created_args["url"] = url
+        created_args["key"] = key
+        return MagicMock()
+
+    monkeypatch.setattr("supabase.create_client", fake_create_client)
+    monkeypatch.setenv("SUPABASE_URL", "  https://demo.supabase.co\n")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "  service-role-secret  ")
+
+    repo = SupabaseRepository()
+    assert repo.url == "https://demo.supabase.co"
+    assert repo.service_role_key == "service-role-secret"
+    assert created_args == {
+        "url": "https://demo.supabase.co",
+        "key": "service-role-secret",
+    }
+
+

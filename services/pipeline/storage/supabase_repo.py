@@ -24,8 +24,10 @@ class SupabaseRepository(JobRepository):
         if client is not None:
             self.client = client
         else:
-            self.url = url or os.environ.get("SUPABASE_URL")
-            self.service_role_key = service_role_key or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+            self.url = (url or os.environ.get("SUPABASE_URL") or "").strip()
+            self.service_role_key = (
+                service_role_key or os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or ""
+            ).strip()
             if not self.url or not self.service_role_key:
                 raise ValueError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required to initialize SupabaseRepository")
             from supabase import create_client
