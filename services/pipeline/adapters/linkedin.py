@@ -7,7 +7,6 @@ Hacemos una búsqueda por cada modalidad para ETIQUETAR la modalidad de forma co
 en vez de adivinarla del texto.
 """
 import logging
-from datetime import datetime
 from typing import List, Dict
 
 from bs4 import BeautifulSoup
@@ -15,7 +14,7 @@ from bs4 import BeautifulSoup
 from config.search import SEARCH_KEYWORDS, SEARCH_LOCATION
 from domain.enums import JobSource, Modality
 from domain.models import JobListing
-from .base import BaseJobAdapter
+from .base import BaseJobAdapter, is_within_max_age_days, should_skip_candidate_title
 
 logger = logging.getLogger(__name__)
 
@@ -79,37 +78,39 @@ class LinkedInGuestAdapter(BaseJobAdapter):
         skip_urls = set(known_urls or ())
         with self._client() as client:
             # 1) Búsquedas por palabra clave x modalidad (máximo 14 días / 2 semanas: f_TPR=r1209600)
-            for keyword in self.keywords:
+            for kw_idx, keyword in enumerate(self.keywords):
                 for wt, modality in WORKPLACE_FILTERS:
                     if len(found) >= limit:
                         break
-                    resp = self._get(client, SEARCH_URL, params={
-                        "keywords": keyword,
-                        "location": SEARCH_LOCATION,
-                        "f_WT": wt,
-                        "f_TPR": "r1209600",  # Filtro oficial LinkedIn: últimas 2 semanas (14 días en segundos)
-                        "sortBy": "DD",
-                        "start": 0,
-                    })
-                    if resp is None:
-                        continue
-                    now = datetime.now()
-                    for item in self.parse_search_results(resp.text):
-                        if item["url"] in skip_urls:
-                            continue
-                        # Validación estricta de antigüedad: máximo 14 días (2 semanas)
-                        pub_str = item.get("published_at")
-                        if pub_str:
-                            try:
-                                p_dt = datetime.strptime(pub_str[:10], "%Y-%m-%d")
-                                if (now - p_dt).days > 14:
-                                    continue
-                            except ValueError:
-                                pass
-
-                        if item["job_id"] not in found and len(found) < limit:
-                            item["modality"] = modality
-                            found[item["job_id"]] = item
+                    starts = (0, 25) if kw_idx < 6 else (0,)
+                    for start in starts:
+                        if len(found) >= limit:
+                            break
+                        resp = self._get(client, SEARCH_URL, params={
+                            "keywords": keyword,
+                            "location": SEARCH_LOCATION,
+                            "f_WT": wt,
+                            "f_TPR": "r1209600",  # Filtro oficial LinkedIn: últimas 2 semanas (14 días en segundos)
+                            "sortBy": "DD",
+                            "start": start,
+                        })
+                        if resp is None:
+                            break
+                        parsed_items = self.parse_search_results(resp.text)
+                        if not parsed_items:
+                            break
+                        for item in parsed_items:
+                            if item["url"] in skip_urls:
+                                continue
+                            if not is_within_max_age_days(item.get("published_at"), max_days=14):
+                                continue
+                            if should_skip_candidate_title(item["title"]):
+                                continue
+                            if item["job_id"] not in found and len(found) < limit:
+                                item["modality"] = modality
+                                found[item["job_id"]] = item
+                        if len(parsed_items) < 10:
+                            break
 
             # 2) Detalle de cada vacante
             listings: List[JobListing] = []

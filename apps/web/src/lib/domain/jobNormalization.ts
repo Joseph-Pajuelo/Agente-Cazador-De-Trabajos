@@ -1032,8 +1032,8 @@ export function isSystemsSoftwareRelevant(
   const coreEngHits = new Set(combined.match(CORE_DEV_DATA_ENG_STACK_RE) ?? []);
 
   if (
-    GENAI_MEDIA_MARKETING_RE.test(combined) &&
-    nonItDesc &&
+    (GENAI_MEDIA_MARKETING_RE.test(titleNorm) ||
+      (GENAI_MEDIA_MARKETING_RE.test(combined) && nonItDesc)) &&
     !/\b(ing(?:enieria)? (?:de )?sistemas|ing(?:enieria)? (?:de )?software|ing(?:enieria)? informatica|computacion|desarrollo de software|programacion|sql)\b/.test(
       combined
     )
@@ -1094,6 +1094,16 @@ export function isSystemsSoftwareRelevant(
   }
 
   if (
+    source === 'cvmatcher' &&
+    /\b(practica|practicante|egresado|asistente|analista|operador)\b/.test(titleNorm) &&
+    /\b(sistemas|auditoria de sistemas|inteligencia artificial|bases? de datos|(?:analisis|analitica) de datos|data analytics|business intelligence|inteligencia de negocios|desarrollo(?: de software| web)?|programacion|ciberseguridad|seguridad de sistemas|negocios it|soporte ti|cloud|devops|qa)\b/.test(
+      titleNorm
+    )
+  ) {
+    return true;
+  }
+
+  if (
     /\b(desarrollador|developer|software|backend|frontend|full ?stack|devops|cloud|data analyst|data engineer|data scientist|ciberseguridad|seguridad informatica|riesgo tecnologico|resiliencia operacional|soporte ti|mesa de ayuda|help desk|it operations|it support|sysadmin|tecnologias? de la informacion|programador|qa|tester|sistemas|ti)\b/.test(
       titleNorm
     )
@@ -1102,15 +1112,6 @@ export function isSystemsSoftwareRelevant(
       stackHits.size >= 1 ||
       /\b(software|ti|it service|it operations|tecnolog|redes|servidores|riesgos ti|ciber|cloud|base(?:s)? de datos|desarrollo web|documentacion tecnica|quality assurance|pruebas funcionales)\b/.test(
         combined
-      )
-    ) {
-      return true;
-    }
-    if (
-      source === 'cvmatcher' &&
-      /\b(practica|practicante|egresado|asistente|analista|operador)\b/.test(titleNorm) &&
-      /\b(sistemas|auditoria de sistemas|inteligencia artificial|bases? de datos|datos|seguridad de sistemas|negocios it|soporte ti)\b/.test(
-        titleNorm
       )
     ) {
       return true;

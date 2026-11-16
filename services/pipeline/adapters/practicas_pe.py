@@ -7,7 +7,12 @@ from bs4 import BeautifulSoup
 
 from domain.models import JobListing
 from domain.enums import JobSource, Modality
-from .base import BaseJobAdapter
+from .base import (
+    BaseJobAdapter,
+    extract_json_ld_date_posted,
+    is_within_max_age_days,
+    should_skip_candidate_title,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -116,74 +121,91 @@ class PracticasPeAdapter(BaseJobAdapter):
             for cat_url in self.CATEGORY_URLS:
                 if len(results) >= limit:
                     break
-                try:
-                    resp = client.get(cat_url)
-                    if resp.status_code != 200:
-                        logger.warning(f"Error HTTP {resp.status_code} al consultar {cat_url}")
-                        continue
-
-                    soup = BeautifulSoup(resp.text, "html.parser")
-                    links = soup.find_all("a", href=True)
-
-                    offer_links = []
-                    for a in links:
-                        href = a["href"].strip()
-                        # Solo enlaces directos a la oferta en practicas.pe
-                        if (
-                            "oferta-convocatoria-" in href 
-                            and href.endswith(".html")
-                            and "practicas.pe" in href
-                            and not any(x in href.lower() for x in ["facebook", "share", "wa.me", "whatsapp", "linkedin", "twitter", "x.com", "messenger"])
-                            and href not in seen_urls
-                        ):
-                            seen_urls.add(href)
-                            offer_links.append((href, a.get_text(strip=True)))
-
-                    for href, anchor_text in offer_links:
-                        if len(results) >= limit:
+                for page in (1, 2):
+                    if len(results) >= limit:
+                        break
+                    try:
+                        resp = client.get(
+                            cat_url,
+                            params={"page": page, "sort": "1-fecha_publicacion"},
+                        )
+                        if resp.status_code != 200:
+                            logger.warning(f"Error HTTP {resp.status_code} al consultar {cat_url} (p={page})")
                             break
-                        try:
-                            # Visitar detalle de la oferta
-                            detail_resp = client.get(href)
-                            if detail_resp.status_code != 200:
+
+                        soup = BeautifulSoup(resp.text, "html.parser")
+                        links = soup.find_all("a", href=True)
+
+                        offer_links = []
+                        raw_offer_count = 0
+                        for a in links:
+                            href = a["href"].strip()
+                            # Solo enlaces directos a la oferta en practicas.pe
+                            if (
+                                "oferta-convocatoria-" in href
+                                and href.endswith(".html")
+                                and "practicas.pe" in href
+                                and not any(x in href.lower() for x in ["facebook", "share", "wa.me", "whatsapp", "linkedin", "twitter", "x.com", "messenger"])
+                            ):
+                                raw_offer_count += 1
+                                if href in seen_urls:
+                                    continue
+                                seen_urls.add(href)
+                                anchor_text = a.get_text(strip=True)
+                                if anchor_text and should_skip_candidate_title(anchor_text):
+                                    continue
+                                offer_links.append((href, anchor_text))
+
+                        if raw_offer_count == 0:
+                            break
+
+                        for href, anchor_text in offer_links:
+                            if len(results) >= limit:
+                                break
+                            try:
+                                detail_resp = client.get(href)
+                                if detail_resp.status_code != 200:
+                                    continue
+
+                                published_at = extract_json_ld_date_posted(detail_resp.text)
+                                if not is_within_max_age_days(published_at, max_days=14):
+                                    continue
+
+                                detail_soup = BeautifulSoup(detail_resp.text, "html.parser")
+
+                                h1 = detail_soup.find("h1")
+                                raw_header = h1.get_text(strip=True) if h1 else anchor_text
+                                company, title = self._extract_company_and_title(raw_header)
+                                if should_skip_candidate_title(title):
+                                    continue
+
+                                raw_desc = self.extract_description(detail_soup)
+                                modality = self._detect_modality(raw_desc)
+
+                                salary_match = re.search(r"(S/\.?\s*\d+[\d,\.]*|remuneraci[oó]n:?\s*S/\.?\s*\d+)", raw_desc, re.IGNORECASE)
+                                salary = salary_match.group(0) if salary_match else None
+
+                                listing = JobListing(
+                                    source=JobSource.PRACTICAS_PE,
+                                    title=title,
+                                    company=company,
+                                    location="Lima, Perú",
+                                    modality=modality,
+                                    url=href,
+                                    raw_description=raw_desc[:4000],
+                                    salary=salary,
+                                    published_at=published_at,
+                                )
+                                listing.compute_hash()
+                                results.append(listing)
+
+                                time.sleep(0.3)
+                            except Exception as e:
+                                logger.error(f"Error procesando detalle {href}: {e}")
                                 continue
 
-                            detail_soup = BeautifulSoup(detail_resp.text, "html.parser")
-                            
-                            # Obtener título y empresa
-                            h1 = detail_soup.find("h1")
-                            raw_header = h1.get_text(strip=True) if h1 else anchor_text
-                            company, title = self._extract_company_and_title(raw_header)
-
-                            # Obtener descripción principal ignorando banners promocionales
-                            raw_desc = self.extract_description(detail_soup)
-
-                            # Detectar modalidad y remuneración
-                            modality = self._detect_modality(raw_desc)
-                            
-                            salary_match = re.search(r"(S/\.?\s*\d+[\d,\.]*|remuneraci[oó]n:?\s*S/\.?\s*\d+)", raw_desc, re.IGNORECASE)
-                            salary = salary_match.group(0) if salary_match else None
-
-                            listing = JobListing(
-                                source=JobSource.PRACTICAS_PE,
-                                title=title,
-                                company=company,
-                                location="Lima, Perú",
-                                modality=modality,
-                                url=href,
-                                raw_description=raw_desc[:4000], # truncar por seguridad
-                                salary=salary
-                            )
-                            listing.compute_hash()
-                            results.append(listing)
-
-                            # Respetar rate-limiting cortés
-                            time.sleep(0.3)
-                        except Exception as e:
-                            logger.error(f"Error procesando detalle {href}: {e}")
-                            continue
-
-                except Exception as e:
-                    logger.error(f"Error al consultar categoría {cat_url}: {e}")
+                    except Exception as e:
+                        logger.error(f"Error al consultar categoría {cat_url} (p={page}): {e}")
+                        break
 
         return results

@@ -791,8 +791,10 @@ def classify_systems_software_relevance(
     core_eng_hits = set(CORE_DEV_DATA_ENG_STACK_RE.findall(combined))
 
     if (
-        GENAI_MEDIA_MARKETING_RE.search(combined)
-        and non_it_desc
+        (
+            GENAI_MEDIA_MARKETING_RE.search(title_norm)
+            or (GENAI_MEDIA_MARKETING_RE.search(combined) and non_it_desc)
+        )
         and not re.search(
             r"\b(ing(?:enieria)?\s+(?:de\s+)?sistemas|ing(?:enieria)?\s+(?:de\s+)?software|ing(?:enieria)?\s+informatica|computacion|desarrollo\s+de\s+software|programacion|sql)\b",
             combined,
@@ -849,6 +851,16 @@ def classify_systems_software_relevance(
             return True, "strong_sw_data_title_despite_career_omission"
         return False, "career_excludes_cs_sw"
 
+    if (
+        source == "cvmatcher"
+        and re.search(r"\b(practica|practicante|egresado|asistente|analista|operador)\b", title_norm)
+        and re.search(
+            r"\b(sistemas|auditoria\s+de\s+sistemas|inteligencia\s+artificial|bases?\s+de\s+datos|(?:analisis|analitica)\s+de\s+datos|data\s+analytics|business\s+intelligence|inteligencia\s+de\s+negocios|desarrollo(?:\s+de\s+software|\s+web)?|programacion|ciberseguridad|seguridad\s+de\s+sistemas|negocios\s+it|soporte\s+ti|cloud|devops|qa)\b",
+            title_norm,
+        )
+    ):
+        return True, "cvmatcher_concise_it_title"
+
     if re.search(
         r"\b(desarrollador|developer|software|backend|frontend|full\s*stack|devops|cloud|data\s+analyst|data\s+engineer|data\s+scientist|ciberseguridad|seguridad\s+informatica|riesgo\s+tecnologico|resiliencia\s+operacional|soporte\s+ti|mesa\s+de\s+ayuda|help\s+desk|it\s+operations|it\s+support|sysadmin|tecnologias?\s+de\s+la\s+informacion|programador|qa|tester|sistemas|ti)\b",
         title_norm,
@@ -858,15 +870,6 @@ def classify_systems_software_relevance(
             combined,
         ):
             return True, "tech_title_plus_tech_context"
-        if (
-            source == "cvmatcher"
-            and re.search(r"\b(practica|practicante|egresado|asistente|analista|operador)\b", title_norm)
-            and re.search(
-                r"\b(sistemas|auditoria\s+de\s+sistemas|inteligencia\s+artificial|bases?\s+de\s+datos|datos|seguridad\s+de\s+sistemas|negocios\s+it|soporte\s+ti)\b",
-                title_norm,
-            )
-        ):
-            return True, "cvmatcher_concise_it_title"
 
     if len(stack_hits) >= 2 and not non_it_desc:
         return True, "multi_tech_stack"

@@ -13,7 +13,7 @@ from bs4 import BeautifulSoup
 from config.search import SEARCH_KEYWORDS
 from domain.enums import JobSource
 from domain.models import JobListing
-from .base import BaseJobAdapter, detect_modality
+from .base import BaseJobAdapter, detect_modality, should_skip_candidate_title
 
 logger = logging.getLogger(__name__)
 
@@ -23,19 +23,21 @@ LIST_URL = "https://www.cvmatcher.app/empleos"
 class CVMatcherAdapter(BaseJobAdapter):
     def __init__(self, keywords: List[str] | None = None):
         super().__init__(name="CVMatcher")
-        # CVMatcher busca por área, así que quitamos la palabra "practicante" del query
-        base_kw = [k.replace("practicante", "").replace("preprofesional", "").strip() for k in (keywords or SEARCH_KEYWORDS)]
-        extra_kw = [
-            "sistemas",
-            "software",
-            "datos",
-            "ti",
-            "inteligencia artificial",
-            "cloud",
-            "ciberseguridad",
-            "desarrollador",
+        default_kw = [
+            "practicante sistemas",
+            "practicante datos",
+            "practicante software",
+            "practicante programacion",
+            "practicante business intelligence",
+            "practicante inteligencia artificial",
+            "practicante ti",
+            "practicante ciberseguridad",
+            "practicante cloud",
+            "practicante qa",
+            "practicante preprofesional sistemas",
+            "practicante preprofesional datos",
         ]
-        self.keywords = list(dict.fromkeys([k for k in (*base_kw, *extra_kw) if k]))
+        self.keywords = list(dict.fromkeys([k.strip() for k in (keywords or default_kw) if k and k.strip()]))
 
     @staticmethod
     def parse_search_results(html: str) -> List[Dict]:
@@ -87,11 +89,16 @@ class CVMatcherAdapter(BaseJobAdapter):
                     if item["url"] in seen or len(listings) >= limit:
                         continue
                     seen.add(item["url"])
+                    if should_skip_candidate_title(item["title"]):
+                        continue
                     description = (
                         f"Puesto: {item['title']}\nEmpresa: {item['company']}\nUbicación: {item['location']}\n"
                         f"Publicado originalmente en: {item['origin']}\n"
                         "Nota: CVMatcher solo expone el resumen; la descripción completa requiere abrir la oferta."
                     )
+                    from domain.normalization import is_systems_software_relevant
+                    if not is_systems_software_relevant(item["title"], description, JobSource.CVMATCHER.value):
+                        continue
                     try:
                         listing = JobListing(
                             source=JobSource.CVMATCHER,

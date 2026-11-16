@@ -193,3 +193,58 @@ def test_practicas_pe_extract_description_skips_promo_alert_article():
     assert "Alerta Informativa" not in extracted
     assert "Requisitos" in extracted
     assert "Subvención: S/ 1,300.00 soles" in extracted
+
+
+def test_candidate_pre_filter_and_relative_dates():
+    from datetime import datetime
+    from adapters.base import (
+        extract_json_ld_date_posted,
+        is_within_max_age_days,
+        parse_relative_es_date,
+        should_skip_candidate_title,
+    )
+    from domain.normalization import classify_systems_software_relevance
+
+    # Skips graduated, regular, senior, and clear non-IT titles
+    assert should_skip_candidate_title("Practicante Profesional de Sistemas") is True
+    assert should_skip_candidate_title("Junior Software Engineer") is True
+    assert should_skip_candidate_title("Practicante de Tesorería") is True
+    assert should_skip_candidate_title("Practicante de Contabilidad") is True
+    assert should_skip_candidate_title("Practicante de Sistema Integrado de Gestión / Lurin") is True
+    assert should_skip_candidate_title("Banquero Beyond") is True
+
+    # Keeps preprofesional, ambiguous IT, and generic internship titles
+    assert should_skip_candidate_title("Practicante Pre Profesional de Sistemas") is False
+    assert should_skip_candidate_title("Practicante de TI (Soporte)") is False
+    assert should_skip_candidate_title("Practicante Pre o Pro de Desarrollo Web") is False
+    assert should_skip_candidate_title("Practicante de Análisis de Datos") is False
+    assert should_skip_candidate_title("Practicante de Operaciones") is False
+
+    ref = datetime(2026, 11, 16, 18, 0, 0)
+    assert parse_relative_es_date("Hoy", now=ref) == "2026-11-16"
+    assert parse_relative_es_date("Ayer", now=ref) == "2026-11-15"
+    assert parse_relative_es_date("Hace  2  días", now=ref) == "2026-11-14"
+    assert is_within_max_age_days("2026-11-10", max_days=14, now=ref) is True
+    assert is_within_max_age_days("2026-10-25", max_days=14, now=ref) is False
+    assert extract_json_ld_date_posted('{"datePosted": "2026-11-16 16:21:17"}') == "2026-11-16"
+
+    # CVMatcher keeps practicante keywords and accepts concise Data/BI internship titles
+    cvm = CVMatcherAdapter()
+    assert any("practicante" in kw for kw in cvm.keywords)
+    rel, reason = classify_systems_software_relevance(
+        "Practicante de Análisis de Datos - SANNA Clínica San Borja",
+        "Nota: CVMatcher solo expone el resumen.",
+        "cvmatcher",
+    )
+    assert rel is True
+    assert reason == "cvmatcher_concise_it_title"
+
+    # GenAI content creation title is still rejected even without description
+    rel_media, reason_media = classify_systems_software_relevance(
+        "Practicante de Creación de contenidos digitales con Inteligencia Artificial",
+        "Nota: CVMatcher solo expone el resumen.",
+        "cvmatcher",
+    )
+    assert rel_media is False
+    assert reason_media == "marketing_or_media_role"
+

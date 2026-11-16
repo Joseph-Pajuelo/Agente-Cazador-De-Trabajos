@@ -491,5 +491,29 @@ describe('Lima Job Normalization Extractor', () => {
       });
       expect(resOps.category).toBe('Ingeniería & Operaciones');
     });
+
+    it('accepts concise CVMatcher Data/BI internship titles while still rejecting non-IT roles', () => {
+      expect(
+        isSystemsSoftwareRelevant(
+          'Practicante de Análisis de Datos - SANNA Clínica San Borja',
+          'Nota: CVMatcher solo expone el resumen.',
+          'cvmatcher'
+        )
+      ).toBe(true);
+      expect(
+        isSystemsSoftwareRelevant(
+          'Practicante Operario de Mantenimiento',
+          'Nota: CVMatcher solo expone el resumen.',
+          'cvmatcher'
+        )
+      ).toBe(false);
+      expect(
+        isSystemsSoftwareRelevant(
+          'Practicante de Creación de contenidos digitales con Inteligencia Artificial',
+          'Nota: CVMatcher solo expone el resumen.',
+          'cvmatcher'
+        )
+      ).toBe(false);
+    });
   });
 });

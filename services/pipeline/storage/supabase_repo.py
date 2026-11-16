@@ -34,13 +34,27 @@ class SupabaseRepository(JobRepository):
             self.client = create_client(self.url, self.service_role_key)
 
     def get_known_urls(self) -> Set[str]:
-        """Obtiene todas las URLs registradas en job_listings."""
+        """Obtiene todas las URLs registradas en job_listings (paginado más allá del límite de 1000 filas)."""
+        urls: Set[str] = set()
+        page_size = 1000
+        offset = 0
         try:
-            resp = self.client.table("job_listings").select("url").execute()
-            return {row["url"] for row in (resp.data or []) if row.get("url")}
+            while True:
+                query = self.client.table("job_listings").select("url")
+                if hasattr(query, "range"):
+                    query = query.range(offset, offset + page_size - 1)
+                resp = query.execute()
+                rows = resp.data or []
+                for row in rows:
+                    if row.get("url"):
+                        urls.add(row["url"])
+                if not hasattr(query, "range") or len(rows) < page_size:
+                    break
+                offset += page_size
+            return urls
         except Exception as e:
             logger.error(f"Error fetching known URLs from Supabase: {e}")
-            return set()
+            return urls
 
     def insert_listing(self, listing: JobListing) -> Tuple[Optional[int], bool]:
         """

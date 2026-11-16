@@ -8,7 +8,6 @@ import html
 import logging
 import re
 import time
-from datetime import datetime
 from typing import List, Dict, Any
 
 import httpx
@@ -17,7 +16,12 @@ from bs4 import BeautifulSoup
 from config.search import SEARCH_KEYWORDS
 from domain.enums import JobSource, Modality
 from domain.models import JobListing
-from .base import BaseJobAdapter, detect_modality
+from .base import (
+    BaseJobAdapter,
+    detect_modality,
+    is_within_max_age_days,
+    should_skip_candidate_title,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -102,52 +106,52 @@ class BumeranAdapter(BaseJobAdapter):
             for query in self.keywords:
                 if len(listings) >= limit:
                     break
-                try:
-                    time.sleep(self.request_delay)
-                    resp = client.post(
-                        API_URL,
-                        params={"pageSize": 30, "page": 0, "sort": "RECIENTES"},
-                        json={"query": query},
-                    )
-                    if resp.status_code != 200:
-                        logger.warning(f"[Bumeran] HTTP {resp.status_code} para query '{query}'")
-                        continue
-                    payload = resp.json()
-                    items = payload.get("content") or []
-                    now = datetime.now()
-                    for parsed in self.parse_api_items(items):
-                        if parsed["url"] in seen_urls or len(listings) >= limit:
-                            continue
-
-                        # Validación estricta de antigüedad: máximo 14 días (2 semanas)
-                        pub_str = parsed.get("published_at")
-                        if pub_str:
-                            for fmt in ("%d-%m-%Y", "%Y-%m-%d"):
-                                try:
-                                    dt = datetime.strptime(pub_str.strip()[:10], fmt)
-                                    if (now - dt).days > 14:
-                                        pub_str = None
-                                        break
-                                except ValueError:
-                                    pass
-                            if pub_str is None:
-                                continue
-                        seen_urls.add(parsed["url"])
-                        listing = JobListing(
-                            source=JobSource.BUMERAN,
-                            title=parsed["title"],
-                            company=parsed["company"],
-                            location=parsed["location"],
-                            modality=parsed["modality"],
-                            url=parsed["url"],
-                            raw_description=parsed["raw_description"][:4000],
-                            salary=parsed["salary"],
-                            published_at=parsed["published_at"],
-                            company_logo_url=parsed.get("company_logo_url"),
+                for page in (0, 1):
+                    if len(listings) >= limit:
+                        break
+                    try:
+                        time.sleep(self.request_delay)
+                        resp = client.post(
+                            API_URL,
+                            params={"pageSize": 30, "page": page, "sort": "RECIENTES"},
+                            json={"query": query},
                         )
-                        listing.compute_hash()
-                        listings.append(listing)
-                except Exception as e:
-                    logger.warning(f"[Bumeran] Error consultando '{query}': {e}")
+                        if resp.status_code != 200:
+                            logger.warning(f"[Bumeran] HTTP {resp.status_code} para query '{query}' (p={page})")
+                            break
+                        payload = resp.json()
+                        items = payload.get("content") or []
+                        if not items:
+                            break
+                        any_within_age = False
+                        for parsed in self.parse_api_items(items):
+                            pub_str = parsed.get("published_at")
+                            if not is_within_max_age_days(pub_str, max_days=14):
+                                continue
+                            any_within_age = True
+                            if parsed["url"] in seen_urls or len(listings) >= limit:
+                                continue
+                            seen_urls.add(parsed["url"])
+                            if should_skip_candidate_title(parsed["title"]):
+                                continue
+                            listing = JobListing(
+                                source=JobSource.BUMERAN,
+                                title=parsed["title"],
+                                company=parsed["company"],
+                                location=parsed["location"],
+                                modality=parsed["modality"],
+                                url=parsed["url"],
+                                raw_description=parsed["raw_description"][:4000],
+                                salary=parsed["salary"],
+                                published_at=pub_str,
+                                company_logo_url=parsed.get("company_logo_url"),
+                            )
+                            listing.compute_hash()
+                            listings.append(listing)
+                        if len(items) < 30 or not any_within_age:
+                            break
+                    except Exception as e:
+                        logger.warning(f"[Bumeran] Error consultando '{query}' (p={page}): {e}")
+                        break
 
         return listings

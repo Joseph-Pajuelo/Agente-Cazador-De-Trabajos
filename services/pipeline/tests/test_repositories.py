@@ -421,3 +421,26 @@ def test_supabase_repository_strips_credentials_and_rejects_blank_env(monkeypatc
     }
 
 
+def test_supabase_get_known_urls_paginates_past_1000():
+    mock_client = MagicMock()
+    page1 = [{"url": f"https://example.com/{i}"} for i in range(1000)]
+    page2 = [{"url": f"https://example.com/{i}"} for i in range(1000, 1050)]
+
+    table_mock = MagicMock()
+    select_mock = MagicMock()
+    range_mock_1 = MagicMock()
+    range_mock_1.execute.return_value = MagicMock(data=page1)
+    range_mock_2 = MagicMock()
+    range_mock_2.execute.return_value = MagicMock(data=page2)
+    select_mock.range.side_effect = [range_mock_1, range_mock_2]
+    table_mock.select.return_value = select_mock
+    mock_client.table.return_value = table_mock
+
+    repo = SupabaseRepository(client=mock_client)
+    urls = repo.get_known_urls()
+    assert len(urls) == 1050
+    assert "https://example.com/1049" in urls
+    assert select_mock.range.call_count == 2
+
+
+

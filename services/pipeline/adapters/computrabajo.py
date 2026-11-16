@@ -13,7 +13,14 @@ from bs4 import BeautifulSoup
 from config.search import SEARCH_KEYWORDS
 from domain.enums import JobSource
 from domain.models import JobListing
-from .base import BaseJobAdapter, detect_modality
+from .base import (
+    BaseJobAdapter,
+    detect_modality,
+    extract_json_ld_date_posted,
+    is_within_max_age_days,
+    parse_relative_es_date,
+    should_skip_candidate_title,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -46,12 +53,15 @@ class ComputrabajoAdapter(BaseJobAdapter):
                 if cand and cand != company_text and not re.match(r"^\d+([.,]\d+)?$", cand):
                     location_text = cand
                     break
+            date_el = art.select_one("p.fs13, p.fc_aux, span.fc_aux")
+            published_at = parse_relative_es_date(date_el.get_text(" ", strip=True)) if date_el else None
             results.append({
                 "offer_id": art.get("data-id") or link["href"],
                 "title": link.get_text(strip=True),
                 "company": company_text,
                 "location": location_text,
                 "url": BASE_URL + link["href"].split("#")[0],
+                "published_at": published_at,
             })
         return results
 
@@ -77,24 +87,42 @@ class ComputrabajoAdapter(BaseJobAdapter):
         found: Dict[str, Dict] = {}
         skip_urls = set(known_urls or ())
         with self._client() as client:
-            for keyword in self.keywords:
+            for idx, keyword in enumerate(self.keywords):
                 if len(found) >= limit:
                     break
                 url = f"{BASE_URL}/trabajo-de-{_slugify(keyword)}-en-lima"
-                resp = self._get(client, url)
-                if resp is None:
-                    continue
-                for item in self.parse_search_results(resp.text):
-                    if item["url"] in skip_urls:
-                        continue
-                    if item["offer_id"] not in found and len(found) < limit:
-                        found[item["offer_id"]] = item
+                pages = (1, 2) if idx < 10 else (1,)
+                for page in pages:
+                    if len(found) >= limit:
+                        break
+                    resp = self._get(client, url, params={"p": page} if page > 1 else None)
+                    if resp is None:
+                        break
+                    items = self.parse_search_results(resp.text)
+                    if not items:
+                        break
+                    for item in items:
+                        if item["url"] in skip_urls:
+                            continue
+                        if not is_within_max_age_days(item.get("published_at"), max_days=14):
+                            continue
+                        if should_skip_candidate_title(item["title"]):
+                            continue
+                        if item["offer_id"] not in found and len(found) < limit:
+                            found[item["offer_id"]] = item
+                    if len(items) < 15:
+                        break
 
             listings: List[JobListing] = []
             for item in found.values():
                 resp = self._get(client, item["url"])
                 description = self.parse_detail(resp.text) if resp else ""
                 logo_url = self.parse_detail_logo(resp.text) if resp else None
+                published_at = item.get("published_at") or (
+                    extract_json_ld_date_posted(resp.text) if resp else None
+                )
+                if not is_within_max_age_days(published_at, max_days=14):
+                    continue
                 if not description:
                     description = f"{item['title']} en {item['company']} ({item['location']})."
                 salary_match = re.search(r"S/\.?\s*[\d,\.]+", description)
@@ -108,6 +136,7 @@ class ComputrabajoAdapter(BaseJobAdapter):
                         url=item["url"],
                         raw_description=description[:4000],
                         salary=salary_match.group(0) if salary_match else None,
+                        published_at=published_at,
                         company_logo_url=logo_url,
                     )
                     listing.compute_hash()

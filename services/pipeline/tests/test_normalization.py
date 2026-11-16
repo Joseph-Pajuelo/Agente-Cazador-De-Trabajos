@@ -226,7 +226,13 @@ def test_adapter_scoping_and_pipeline_off_career_filtering(monkeypatch, tmp_path
     assert "practicante" not in cv_kw
     assert "ingenieria" not in cv_kw
     assert "analista" not in cv_kw
-    for expected in ("sistemas", "software", "datos", "ti", "ciberseguridad"):
+    for expected in (
+        "practicante sistemas",
+        "practicante software",
+        "practicante datos",
+        "practicante ti",
+        "practicante ciberseguridad",
+    ):
         assert expected in cv_kw
 
     fake_listings = [
