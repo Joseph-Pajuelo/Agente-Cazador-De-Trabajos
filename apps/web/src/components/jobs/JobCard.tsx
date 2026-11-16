@@ -315,10 +315,10 @@ export function JobCard({
                 disabled={isPendingCrm}
                 aria-pressed={isCurrent}
                 title={`${isCurrent ? 'Estado actual: ' : 'Cambiar a: '}${metaInfo.description}`}
-                className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold border transition-all disabled:opacity-50 ${
+                className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold border transition-all ${
                   isCurrent
-                    ? 'font-bold shadow-xs scale-[1.02]'
-                    : 'bg-white text-slate-600 border-slate-200 hover:bg-blue-50/50 hover:text-[#2563EB] hover:border-blue-200'
+                    ? 'font-bold shadow-xs scale-[1.02] disabled:opacity-90'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-blue-50/50 hover:text-[#2563EB] hover:border-blue-200 disabled:opacity-50'
                 }`}
                 style={
                   isCurrent

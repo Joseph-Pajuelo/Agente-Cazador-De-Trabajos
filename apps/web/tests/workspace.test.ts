@@ -4,10 +4,13 @@ import * as jobNormalization from '../src/lib/domain/jobNormalization';
 import {
   WorkspaceFilters,
   DEFAULT_WORKSPACE_FILTERS,
+  PendingCrmOverride,
+  RECENT_CRM_OVERRIDE_TTL_MS,
   computeCrmCounts,
   requiresHistoricalQuery,
   canMutateCrm,
   applyOptimisticCrmTransition,
+  mergeServerJobsWithPendingCrm,
   rollbackJobTransition,
   filterAndSortWorkspaceJobs,
   isJobEligibleForRoleLevels,
@@ -1187,6 +1190,112 @@ describe('Workspace State & Pure Reducer Helpers', () => {
       });
       expect(counts.todas).toBe(1);
       expect(counts.to_apply).toBe(1);
+    });
+  });
+
+  describe('mergeServerJobsWithPendingCrm', () => {
+    it('preserves in-flight and recently settled applied status against stale router.refresh initialJobs', () => {
+      const overrides = new Map<string, PendingCrmOverride>([
+        [
+          '1',
+          {
+            seq: 1,
+            status: 'applied',
+            applied_at: '2026-11-16T08:00:00.000Z',
+            user_notes: null,
+            settledAt: null,
+          },
+        ],
+        [
+          '2',
+          {
+            seq: 1,
+            status: 'applied',
+            applied_at: '2026-11-16T08:00:05.000Z',
+            user_notes: 'Postulé en portal',
+            settledAt: 100_000,
+          },
+        ],
+      ]);
+
+      const staleServerJobs: JobSummary[] = sampleJobs.slice(0, 2).map((j) => ({
+        ...j,
+        user_status: null,
+        applied_at: null,
+        user_notes: null,
+      }));
+
+      const merged = mergeServerJobsWithPendingCrm(
+        staleServerJobs,
+        overrides,
+        100_000 + 3_000
+      );
+
+      expect(merged[0].user_status).toBe('applied');
+      expect(merged[0].applied_at).toBe('2026-11-16T08:00:00.000Z');
+      expect(merged[1].user_status).toBe('applied');
+      expect(merged[1].user_notes).toBe('Postulé en portal');
+      expect(overrides.has('2')).toBe(true);
+    });
+
+    it('clears settled override once serverJobs catches up or TTL expires', () => {
+      const overrides = new Map<string, PendingCrmOverride>([
+        [
+          '1',
+          {
+            seq: 1,
+            status: 'applied',
+            applied_at: '2026-11-16T08:00:00.000Z',
+            user_notes: null,
+            settledAt: 100_000,
+          },
+        ],
+        [
+          '2',
+          {
+            seq: 1,
+            status: 'favorite',
+            applied_at: null,
+            user_notes: null,
+            settledAt: 100_000,
+          },
+        ],
+      ]);
+
+      const serverJobsWithSyncedJob1: JobSummary[] = [
+        {
+          ...sampleJobs[0],
+          user_status: 'applied',
+          applied_at: '2026-11-16T08:00:00.000Z',
+          user_notes: null,
+        },
+        {
+          ...sampleJobs[1],
+          user_status: null,
+          applied_at: null,
+          user_notes: null,
+        },
+      ];
+
+      // Before TTL: job 1 clears because server caught up; job 2 preserves override
+      const mergedEarly = mergeServerJobsWithPendingCrm(
+        serverJobsWithSyncedJob1,
+        overrides,
+        100_000 + 2_000
+      );
+      expect(mergedEarly[0].user_status).toBe('applied');
+      expect(overrides.has('1')).toBe(false);
+      expect(mergedEarly[1].user_status).toBe('favorite');
+      expect(overrides.has('2')).toBe(true);
+
+      // After TTL: expired override on job 2 drops cleanly
+      const mergedLate = mergeServerJobsWithPendingCrm(
+        serverJobsWithSyncedJob1,
+        overrides,
+        100_000 + RECENT_CRM_OVERRIDE_TTL_MS + 1
+      );
+      expect(mergedLate[1].user_status).toBeNull();
+      expect(overrides.has('2')).toBe(false);
     });
   });
 });

@@ -159,6 +159,16 @@ export function canMutateCrm(user: { id?: string } | null | undefined): boolean 
   return Boolean(user && typeof user.id === 'string' && user.id.trim().length > 0);
 }
 
+export interface PendingCrmOverride {
+  seq: number;
+  status: CrmStatus;
+  applied_at?: string | null;
+  user_notes?: string | null;
+  settledAt: number | null;
+}
+
+export const RECENT_CRM_OVERRIDE_TTL_MS = 15_000;
+
 /**
  * Pure optimistic updater for CRM transitions.
  * Returns a new array without mutating input objects.
@@ -167,7 +177,8 @@ export function applyOptimisticCrmTransition(
   jobs: JobSummary[],
   listingId: number | string,
   nextStatus: CrmStatus,
-  nextNotes?: string
+  nextNotes?: string,
+  explicitAppliedAt?: string | null
 ): JobSummary[] {
   const targetId = String(listingId);
 
@@ -177,7 +188,9 @@ export function applyOptimisticCrmTransition(
     }
 
     let appliedAt = job.applied_at;
-    if (nextStatus === 'applied') {
+    if (explicitAppliedAt !== undefined) {
+      appliedAt = explicitAppliedAt;
+    } else if (nextStatus === 'applied') {
       appliedAt = appliedAt || new Date().toISOString();
     }
 
@@ -186,6 +199,62 @@ export function applyOptimisticCrmTransition(
       user_status: nextStatus,
       applied_at: appliedAt,
       user_notes: nextNotes !== undefined ? nextNotes : job.user_notes,
+    };
+  });
+}
+
+/**
+ * Preserves in-flight or recently settled optimistic CRM mutations when
+ * Next.js re-delivers `initialJobs` from a concurrent `router.refresh()`.
+ */
+export function mergeServerJobsWithPendingCrm(
+  serverJobs: JobSummary[],
+  overrides: Map<string, PendingCrmOverride>,
+  nowMs: number = Date.now(),
+  ttlMs: number = RECENT_CRM_OVERRIDE_TTL_MS
+): JobSummary[] {
+  if (overrides.size === 0) {
+    return serverJobs;
+  }
+
+  let hasActiveOverride = false;
+  for (const [id, entry] of overrides.entries()) {
+    if (entry.settledAt === null || nowMs - entry.settledAt <= ttlMs) {
+      hasActiveOverride = true;
+    } else {
+      overrides.delete(id);
+    }
+  }
+
+  if (!hasActiveOverride) {
+    return serverJobs;
+  }
+
+  return serverJobs.map((job) => {
+    const key = String(job.id);
+    const override = overrides.get(key);
+    if (!override) {
+      return job;
+    }
+
+    if (override.settledAt !== null && job.user_status === override.status) {
+      // Server snapshot already reflects the settled status
+      if (
+        override.user_notes === undefined ||
+        (job.user_notes ?? null) === (override.user_notes ?? null)
+      ) {
+        overrides.delete(key);
+        return job;
+      }
+    }
+
+    return {
+      ...job,
+      user_status: override.status,
+      applied_at:
+        override.applied_at !== undefined ? override.applied_at : job.applied_at,
+      user_notes:
+        override.user_notes !== undefined ? override.user_notes : job.user_notes,
     };
   });
 }

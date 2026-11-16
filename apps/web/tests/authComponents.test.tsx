@@ -33,6 +33,7 @@ import {
   getAuthTransitionDirection,
 } from '../src/components/auth/AuthFormPrimitives';
 import { AuthModal } from '../src/components/auth/AuthModal';
+import { resolveAuthRefreshAction } from '../src/components/auth/AuthSessionSync';
 
 describe('Auth Helpers: Google OAuth precheck, error mapping & mode transitions', () => {
   const originalUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -178,5 +179,35 @@ describe('Auth UI Primitives & AuthModal SSR', () => {
     expect(html).toContain('auth-mode-forward');
     expect(html).toContain('Crear tu cuenta');
     expect(html).toContain('Continuar con Google');
+  });
+
+  it('ignores same-user SIGNED_IN visibilitychange events and refreshes only on real identity transitions', () => {
+    // 1. Initial session sets baseline without forcing router.refresh()
+    expect(resolveAuthRefreshAction('INITIAL_SESSION', undefined, 'user-1')).toEqual({
+      shouldRefresh: false,
+      nextUserId: 'user-1',
+    });
+
+    // 2. Returning to tab triggers SIGNED_IN for same user -> must NOT refresh
+    expect(resolveAuthRefreshAction('SIGNED_IN', 'user-1', 'user-1')).toEqual({
+      shouldRefresh: false,
+      nextUserId: 'user-1',
+    });
+
+    // 3. Guest -> Signed in triggers refresh
+    expect(resolveAuthRefreshAction('SIGNED_IN', null, 'user-1')).toEqual({
+      shouldRefresh: true,
+      nextUserId: 'user-1',
+    });
+
+    // 4. Signed in -> Signed out triggers refresh; repeated SIGNED_OUT does not
+    expect(resolveAuthRefreshAction('SIGNED_OUT', 'user-1', null)).toEqual({
+      shouldRefresh: true,
+      nextUserId: null,
+    });
+    expect(resolveAuthRefreshAction('SIGNED_OUT', null, null)).toEqual({
+      shouldRefresh: false,
+      nextUserId: null,
+    });
   });
 });

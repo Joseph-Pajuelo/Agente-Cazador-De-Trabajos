@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useTransition } from 'react';
+import React from 'react';
 import {
   AlertCircle,
   Inbox,
@@ -14,10 +14,12 @@ import {
   WorkspaceFilters,
   WorkspaceCrmTab,
   WorkspaceSortBy,
+  PendingCrmOverride,
   computeCrmCounts,
   requiresHistoricalQuery,
   canMutateCrm,
   applyOptimisticCrmTransition,
+  mergeServerJobsWithPendingCrm,
   rollbackJobTransition,
   filterAndSortWorkspaceJobs,
   computeDistrictFacetCounts,
@@ -70,15 +72,19 @@ export function JobsWorkspace({
   isConfigured,
   initialSearchParams,
 }: JobsWorkspaceProps) {
-  const [, startTransition] = useTransition();
-
   const [activeUser, setActiveUser] = React.useState<{
     id: string;
     email?: string | null;
   } | null>(user);
 
+  const crmOverridesRef = React.useRef<Map<string, PendingCrmOverride>>(new Map());
+  const mutationSeqRef = React.useRef<Map<string, number>>(new Map());
+
   React.useEffect(() => {
     setActiveUser(user);
+    if (!user) {
+      crmOverridesRef.current.clear();
+    }
   }, [user]);
 
   // 1. URL & Filter Hydration
@@ -100,7 +106,7 @@ export function JobsWorkspace({
   const [jobs, setJobs] = React.useState<JobSummary[]>(initialJobs);
 
   React.useEffect(() => {
-    setJobs(initialJobs);
+    setJobs(mergeServerJobsWithPendingCrm(initialJobs, crmOverridesRef.current));
   }, [initialJobs]);
 
   // Reconcile profile exclusions when profileExcludedDistricts changes
@@ -170,7 +176,9 @@ export function JobsWorkspace({
     })
       .then((res) => {
         if (!isMounted) return;
-        setHistoricalJobs(res.jobs);
+        setHistoricalJobs(
+          mergeServerJobsWithPendingCrm(res.jobs, crmOverridesRef.current)
+        );
         setHistoricalNextOffset(res.nextOffset ?? res.jobs.length);
         setHistoricalHasMore(res.hasMore);
       })
@@ -228,7 +236,10 @@ export function JobsWorkspace({
         salaryFilter: filters.salaryFilter,
       });
 
-      setHistoricalJobs((prev) => [...prev, ...res.jobs]);
+      setHistoricalJobs((prev) => [
+        ...prev,
+        ...mergeServerJobsWithPendingCrm(res.jobs, crmOverridesRef.current),
+      ]);
       setHistoricalNextOffset(res.nextOffset ?? (currentOffset + res.jobs.length));
       setHistoricalHasMore(res.hasMore);
     } catch (err) {
@@ -372,7 +383,9 @@ export function JobsWorkspace({
   }, [selectedJob]);
 
   // 7. CRM State Mutations & Optimistic Rollback
-  const [pendingCrmJobId, setPendingCrmJobId] = React.useState<string | null>(null);
+  const [pendingCrmJobIds, setPendingCrmJobIds] = React.useState<Set<string>>(
+    () => new Set()
+  );
   const [actionError, setActionError] = React.useState<string | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = React.useState<boolean>(false);
   const [authPrompt, setAuthPrompt] = React.useState<string>(
@@ -388,21 +401,56 @@ export function JobsWorkspace({
       return;
     }
 
+    const targetId = job.id;
+    const idKey = String(targetId);
+
+    if (pendingCrmJobIds.has(idKey) && job.user_status === status) {
+      return;
+    }
+
     const prevJobState = {
       user_status: job.user_status,
       applied_at: job.applied_at,
       user_notes: job.user_notes,
     };
-    const targetId = job.id;
+    const nextSeq = (mutationSeqRef.current.get(idKey) ?? 0) + 1;
+    mutationSeqRef.current.set(idKey, nextSeq);
 
-    setPendingCrmJobId(String(targetId));
+    const optimisticAppliedAt =
+      status === 'applied'
+        ? job.applied_at || new Date().toISOString()
+        : (job.applied_at ?? null);
 
-    startTransition(() => {
-      setJobs((prev) => applyOptimisticCrmTransition(prev, targetId, status));
-      if (historicalJobs.length > 0) {
-        setHistoricalJobs((prev) => applyOptimisticCrmTransition(prev, targetId, status));
-      }
+    crmOverridesRef.current.set(idKey, {
+      seq: nextSeq,
+      status,
+      applied_at: optimisticAppliedAt,
+      user_notes: job.user_notes ?? null,
+      settledAt: null,
     });
+
+    setPendingCrmJobIds((prev) => {
+      const next = new Set(prev);
+      next.add(idKey);
+      return next;
+    });
+
+    // Apply optimistic update immediately outside startTransition so button state
+    // flips in the first frame without waiting behind heavy transition renders.
+    setJobs((prev) =>
+      applyOptimisticCrmTransition(prev, targetId, status, undefined, optimisticAppliedAt)
+    );
+    setHistoricalJobs((prev) =>
+      prev.length > 0
+        ? applyOptimisticCrmTransition(
+            prev,
+            targetId,
+            status,
+            undefined,
+            optimisticAppliedAt
+          )
+        : prev
+    );
 
     const numericId = Number(targetId);
     if (numericId > 0) {
@@ -412,34 +460,90 @@ export function JobsWorkspace({
         notes: job.user_notes || undefined,
       })
         .then((res) => {
+          if (mutationSeqRef.current.get(idKey) !== nextSeq) {
+            return;
+          }
+
           if (!res.ok) {
             console.error('Failed to update CRM status:', res.error);
+            crmOverridesRef.current.delete(idKey);
             setJobs((prev) => rollbackJobTransition(prev, targetId, prevJobState));
-            if (historicalJobs.length > 0) {
-              setHistoricalJobs((prev) =>
-                rollbackJobTransition(prev, targetId, prevJobState)
-              );
-            }
+            setHistoricalJobs((prev) =>
+              prev.length > 0
+                ? rollbackJobTransition(prev, targetId, prevJobState)
+                : prev
+            );
             setActionError('No se pudo guardar el estado de la postulación. Intenta nuevamente.');
             setTimeout(() => setActionError(null), 4000);
+            return;
+          }
+
+          const finalAppliedAt =
+            res.appliedAt !== undefined ? res.appliedAt : optimisticAppliedAt;
+          crmOverridesRef.current.set(idKey, {
+            seq: nextSeq,
+            status,
+            applied_at: finalAppliedAt,
+            user_notes: job.user_notes ?? null,
+            settledAt: Date.now(),
+          });
+
+          if (res.appliedAt !== undefined && res.appliedAt !== optimisticAppliedAt) {
+            setJobs((prev) =>
+              applyOptimisticCrmTransition(prev, targetId, status, undefined, finalAppliedAt)
+            );
+            setHistoricalJobs((prev) =>
+              prev.length > 0
+                ? applyOptimisticCrmTransition(
+                    prev,
+                    targetId,
+                    status,
+                    undefined,
+                    finalAppliedAt
+                  )
+                : prev
+            );
           }
         })
         .catch((err) => {
-          console.error('Error updating CRM status:', err);
-          setJobs((prev) => rollbackJobTransition(prev, targetId, prevJobState));
-          if (historicalJobs.length > 0) {
-            setHistoricalJobs((prev) =>
-              rollbackJobTransition(prev, targetId, prevJobState)
-            );
+          if (mutationSeqRef.current.get(idKey) !== nextSeq) {
+            return;
           }
+          console.error('Error updating CRM status:', err);
+          crmOverridesRef.current.delete(idKey);
+          setJobs((prev) => rollbackJobTransition(prev, targetId, prevJobState));
+          setHistoricalJobs((prev) =>
+            prev.length > 0
+              ? rollbackJobTransition(prev, targetId, prevJobState)
+              : prev
+          );
           setActionError('Error de red al sincronizar el estado.');
           setTimeout(() => setActionError(null), 4000);
         })
         .finally(() => {
-          setPendingCrmJobId(null);
+          if (mutationSeqRef.current.get(idKey) === nextSeq) {
+            setPendingCrmJobIds((prev) => {
+              if (!prev.has(idKey)) return prev;
+              const next = new Set(prev);
+              next.delete(idKey);
+              return next;
+            });
+          }
         });
     } else {
-      setPendingCrmJobId(null);
+      crmOverridesRef.current.set(idKey, {
+        seq: nextSeq,
+        status,
+        applied_at: optimisticAppliedAt,
+        user_notes: job.user_notes ?? null,
+        settledAt: Date.now(),
+      });
+      setPendingCrmJobIds((prev) => {
+        if (!prev.has(idKey)) return prev;
+        const next = new Set(prev);
+        next.delete(idKey);
+        return next;
+      });
     }
   };
 
@@ -460,18 +564,27 @@ export function JobsWorkspace({
       user_notes: selectedJob.user_notes,
     };
     const targetId = selectedJob.id;
+    const idKey = String(targetId);
     const currentStatus = selectedJob.user_status || 'to_apply';
+    const nextSeq = (mutationSeqRef.current.get(idKey) ?? 0) + 1;
+    mutationSeqRef.current.set(idKey, nextSeq);
 
-    startTransition(() => {
-      setJobs((prev) =>
-        applyOptimisticCrmTransition(prev, targetId, currentStatus, notes)
-      );
-      if (historicalJobs.length > 0) {
-        setHistoricalJobs((prev) =>
-          applyOptimisticCrmTransition(prev, targetId, currentStatus, notes)
-        );
-      }
+    crmOverridesRef.current.set(idKey, {
+      seq: nextSeq,
+      status: currentStatus,
+      applied_at: selectedJob.applied_at ?? null,
+      user_notes: notes,
+      settledAt: null,
     });
+
+    setJobs((prev) =>
+      applyOptimisticCrmTransition(prev, targetId, currentStatus, notes)
+    );
+    setHistoricalJobs((prev) =>
+      prev.length > 0
+        ? applyOptimisticCrmTransition(prev, targetId, currentStatus, notes)
+        : prev
+    );
 
     const numericId = Number(targetId);
     if (numericId > 0) {
@@ -482,27 +595,46 @@ export function JobsWorkspace({
           notes,
         });
 
+        if (mutationSeqRef.current.get(idKey) !== nextSeq) {
+          return res.ok;
+        }
+
         if (!res.ok) {
+          crmOverridesRef.current.delete(idKey);
           setJobs((prev) => rollbackJobTransition(prev, targetId, prevJobState));
-          if (historicalJobs.length > 0) {
-            setHistoricalJobs((prev) =>
-              rollbackJobTransition(prev, targetId, prevJobState)
-            );
-          }
+          setHistoricalJobs((prev) =>
+            prev.length > 0
+              ? rollbackJobTransition(prev, targetId, prevJobState)
+              : prev
+          );
           setActionError('No se pudo guardar la nota en el servidor.');
           setTimeout(() => setActionError(null), 4000);
           return false;
         }
+
+        crmOverridesRef.current.set(idKey, {
+          seq: nextSeq,
+          status: currentStatus,
+          applied_at:
+            res.appliedAt !== undefined
+              ? res.appliedAt
+              : (selectedJob.applied_at ?? null),
+          user_notes: notes,
+          settledAt: Date.now(),
+        });
         return true;
       } catch {
-        setJobs((prev) => rollbackJobTransition(prev, targetId, prevJobState));
-        if (historicalJobs.length > 0) {
+        if (mutationSeqRef.current.get(idKey) === nextSeq) {
+          crmOverridesRef.current.delete(idKey);
+          setJobs((prev) => rollbackJobTransition(prev, targetId, prevJobState));
           setHistoricalJobs((prev) =>
-            rollbackJobTransition(prev, targetId, prevJobState)
+            prev.length > 0
+              ? rollbackJobTransition(prev, targetId, prevJobState)
+              : prev
           );
+          setActionError('Error de red al guardar la nota.');
+          setTimeout(() => setActionError(null), 4000);
         }
-        setActionError('Error de red al guardar la nota.');
-        setTimeout(() => setActionError(null), 4000);
         return false;
       }
     }
@@ -864,7 +996,7 @@ export function JobsWorkspace({
                       isSelected={selectedJob ? String(selectedJob.id) === String(job.id) : false}
                       onSelect={() => setSelectedJobId(job.id)}
                       onQuickCrmChange={handleQuickCrmChange}
-                      isPendingCrm={pendingCrmJobId === String(job.id)}
+                      isPendingCrm={pendingCrmJobIds.has(String(job.id))}
                     />
                   ))}
 
