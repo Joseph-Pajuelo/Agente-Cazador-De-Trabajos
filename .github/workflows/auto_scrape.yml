@@ -2,10 +2,10 @@ name: Auto-Scan Job Portals (7 AM & 2 PM Peru)
 
 on:
   schedule:
-    # 12:00 UTC = 07:00 AM Hora Perú (UTC-5)
-    - cron: "0 12 * * *"
-    # 19:00 UTC = 02:00 PM Hora Perú (UTC-5)
-    - cron: "0 19 * * *"
+    # 12:17 UTC = 07:17 AM Hora Perú (UTC-5) — minuto fuera de :00 para evitar congestión en GitHub Actions
+    - cron: "17 12 * * *"
+    # 19:23 UTC = 02:23 PM Hora Perú (UTC-5) — minuto fuera de :00 para evitar congestión en GitHub Actions
+    - cron: "23 19 * * *"
   workflow_dispatch: # Permite ejecutar el escaneo en la nube manualmente con 1 clic en GitHub
 
 permissions:
