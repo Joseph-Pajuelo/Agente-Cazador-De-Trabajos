@@ -156,14 +156,19 @@ export async function searchHistoricalJobs(
     // Join authenticated user CRM states if user is signed in
     const userStateMap = new Map<
       number,
-      { status: CrmStatus; applied_at?: string | null; notes?: string }
+      {
+        status: CrmStatus;
+        applied_at?: string | null;
+        updated_at?: string | null;
+        notes?: string;
+      }
     >();
 
     if (userId && finalRows.length > 0) {
       const listingIds = finalRows.map((r: Record<string, unknown>) => Number(r.id));
       const { data: userStates } = await supabase
         .from('user_job_states')
-        .select('listing_id, status, applied_at, notes')
+        .select('listing_id, status, applied_at, updated_at, notes')
         .eq('user_id', userId)
         .in('listing_id', listingIds);
 
@@ -172,6 +177,7 @@ export async function searchHistoricalJobs(
           userStateMap.set(Number(s.listing_id), {
             status: s.status as CrmStatus,
             applied_at: s.applied_at,
+            updated_at: s.updated_at,
             notes: s.notes,
           });
         }

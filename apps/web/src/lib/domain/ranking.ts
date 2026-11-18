@@ -76,7 +76,7 @@ export function getJobAgeDays(
 
   if (!dt) return null;
 
-  const ref = now || new Date();
+  const ref = now || new Date(Date.now() - 5 * 60 * 60 * 1000);
   const refUtc = Date.UTC(
     ref.getUTCFullYear(),
     ref.getUTCMonth(),
@@ -244,4 +244,27 @@ export function isRecommended(
     !Boolean(job.is_unrealistic_or_smoke) &&
     (Number(job.final_ranking_score) || 0) >= minScore
   );
+}
+
+export function isJobNewToday(
+  job: {
+    published_date?: string | null;
+    published_at?: string | null;
+    created_at?: string | null;
+  },
+  now?: Date
+): boolean {
+  const pubAge = getJobAgeDays(
+    {
+      published_date: job.published_date,
+      published_at: job.published_at,
+    },
+    now
+  );
+  if (pubAge === 0) return true;
+  if (job.created_at) {
+    const createdAge = getJobAgeDays({ created_at: job.created_at }, now);
+    if (createdAge === 0) return true;
+  }
+  return false;
 }

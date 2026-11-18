@@ -151,6 +151,7 @@ export interface JobSummary {
   // Authenticated user CRM state (joined from public.user_job_states)
   user_status?: CrmStatus | null;
   applied_at?: string | null;
+  status_updated_at?: string | null;
   user_notes?: string | null;
 
   // Normalized Lima location, category, role, English and salary metadata

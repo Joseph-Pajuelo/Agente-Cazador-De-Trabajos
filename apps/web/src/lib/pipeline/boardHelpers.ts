@@ -73,6 +73,14 @@ export function groupJobsByPipelineStage(jobs: JobSummary[]): PipelineGroups {
     }
   }
 
+  for (const stage of ['favorite', 'applied', 'interview', 'discarded'] as const) {
+    groups[stage].sort((a, b) => {
+      const selA = Date.parse(a.status_updated_at || a.applied_at || '') || 0;
+      const selB = Date.parse(b.status_updated_at || b.applied_at || '') || 0;
+      return selB - selA;
+    });
+  }
+
   return groups;
 }
 
@@ -83,12 +91,13 @@ export function groupJobsByPipelineStage(jobs: JobSummary[]): PipelineGroups {
 export function movePipelineJob(
   jobs: JobSummary[],
   listingId: number | string,
-  nextStage: CrmStatus,
+  nextStage: CrmStatus | null,
   nextNotes?: string,
   appliedAt?: string | null
 ): JobSummary[] {
   let found = false;
   const idStr = String(listingId);
+  const nowIso = new Date().toISOString();
 
   const updated = jobs.map((job) => {
     if (String(job.id) !== idStr) {
@@ -96,6 +105,17 @@ export function movePipelineJob(
     }
 
     found = true;
+    const nextNotesVal = nextNotes !== undefined ? nextNotes : (job.user_notes ?? '');
+
+    if (nextStage === null) {
+      return {
+        ...job,
+        user_status: null,
+        applied_at: null,
+        status_updated_at: null,
+        user_notes: nextNotesVal,
+      };
+    }
 
     // Calculate applied_at: if moving to 'applied' and not yet set, set to now or supplied appliedAt
     let nextAppliedAt: string | null = job.applied_at ?? null;
@@ -103,16 +123,15 @@ export function movePipelineJob(
       if (appliedAt !== undefined) {
         nextAppliedAt = appliedAt;
       } else if (!job.applied_at) {
-        nextAppliedAt = new Date().toISOString();
+        nextAppliedAt = nowIso;
       }
     }
-
-    const nextNotesVal = nextNotes !== undefined ? nextNotes : (job.user_notes ?? '');
 
     return {
       ...job,
       user_status: nextStage,
       applied_at: nextAppliedAt,
+      status_updated_at: nowIso,
       user_notes: nextNotesVal,
     };
   });

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { JobSummary } from '../src/lib/domain/types';
+import { isJobNewToday } from '../src/lib/domain/ranking';
 import * as jobNormalization from '../src/lib/domain/jobNormalization';
 import {
   WorkspaceFilters,
@@ -1340,6 +1341,111 @@ describe('Workspace State & Pure Reducer Helpers', () => {
       );
       expect(mergedLate[1].user_status).toBeNull();
       expect(overrides.has('2')).toBe(false);
+    });
+  });
+
+  describe('14. Nuevas de hoy, selection-order sorting, and return to Activas', () => {
+    it('detects isJobNewToday from published_date or created_at and filters maxAgeDays: 0', () => {
+      const todayNow = new Date('2026-11-17T12:00:00.000Z');
+      const todayJobByPub: JobSummary = {
+        ...sampleJobs[0],
+        id: 501,
+        deduplication_hash: 'today-pub',
+        published_date: '2026-11-17',
+        created_at: '2026-11-16T18:00:00Z',
+        user_status: null,
+      };
+      const todayJobByCreated: JobSummary = {
+        ...sampleJobs[0],
+        id: 502,
+        deduplication_hash: 'today-created',
+        published_date: '2026-11-15',
+        created_at: '2026-11-17T11:00:00Z',
+        user_status: null,
+      };
+      const yesterdayJob: JobSummary = {
+        ...sampleJobs[0],
+        id: 503,
+        deduplication_hash: 'yesterday-job',
+        published_date: '2026-11-16',
+        created_at: '2026-11-16T18:00:00Z',
+        user_status: null,
+      };
+
+      expect(isJobNewToday(todayJobByPub, todayNow)).toBe(true);
+      expect(isJobNewToday(todayJobByCreated, todayNow)).toBe(true);
+      expect(isJobNewToday(yesterdayJob, todayNow)).toBe(false);
+
+      const res = filterAndSortWorkspaceJobs(
+        [todayJobByPub, todayJobByCreated, yesterdayJob],
+        { ...DEFAULT_WORKSPACE_FILTERS, maxAgeDays: 0 },
+        todayNow
+      );
+      expect(res.jobs.map((j) => j.id)).toEqual([501, 502]);
+    });
+
+    it('sorts applied and discarded tabs by selection order descending instead of publication date', () => {
+      const now = new Date('2026-11-17T12:00:00.000Z');
+      const olderPublishedSelectedSecond: JobSummary = {
+        ...sampleJobs[0],
+        id: 601,
+        deduplication_hash: 'sel-older-pub',
+        published_date: '2026-11-05',
+        user_status: 'applied',
+        applied_at: '2026-11-17T19:00:00.000Z',
+        status_updated_at: '2026-11-17T19:00:00.000Z',
+      };
+      const newerPublishedSelectedFirst: JobSummary = {
+        ...sampleJobs[0],
+        id: 602,
+        deduplication_hash: 'sel-newer-pub',
+        published_date: '2026-11-16',
+        user_status: 'applied',
+        applied_at: '2026-11-17T18:00:00.000Z',
+        status_updated_at: '2026-11-17T18:00:00.000Z',
+      };
+
+      const appliedRes = filterAndSortWorkspaceJobs(
+        [newerPublishedSelectedFirst, olderPublishedSelectedSecond],
+        { ...DEFAULT_WORKSPACE_FILTERS, crmTab: 'applied' },
+        now
+      );
+      expect(appliedRes.jobs.map((j) => j.id)).toEqual([601, 602]);
+
+      const discardedOlderPubNewerSelect: JobSummary = {
+        ...olderPublishedSelectedSecond,
+        id: 603,
+        deduplication_hash: 'disc-older-pub',
+        user_status: 'discarded',
+        applied_at: null,
+        status_updated_at: '2026-11-17T20:00:00.000Z',
+      };
+      const discardedNewerPubOlderSelect: JobSummary = {
+        ...newerPublishedSelectedFirst,
+        id: 604,
+        deduplication_hash: 'disc-newer-pub',
+        user_status: 'discarded',
+        applied_at: null,
+        status_updated_at: '2026-11-17T17:00:00.000Z',
+      };
+      const discardedRes = filterAndSortWorkspaceJobs(
+        [discardedNewerPubOlderSelect, discardedOlderPubNewerSelect],
+        { ...DEFAULT_WORKSPACE_FILTERS, crmTab: 'discarded' },
+        now
+      );
+      expect(discardedRes.jobs.map((j) => j.id)).toEqual([603, 604]);
+    });
+
+    it('restores a job back to Activas when applyOptimisticCrmTransition receives null', () => {
+      const applied = applyOptimisticCrmTransition(sampleJobs, 1, 'applied');
+      expect(applied.find((j) => j.id === 1)?.user_status).toBe('applied');
+      expect(applied.find((j) => j.id === 1)?.status_updated_at).toBeTruthy();
+
+      const restored = applyOptimisticCrmTransition(applied, 1, null);
+      const restoredJob = restored.find((j) => j.id === 1);
+      expect(restoredJob?.user_status).toBeNull();
+      expect(restoredJob?.applied_at).toBeNull();
+      expect(restoredJob?.status_updated_at).toBeNull();
     });
   });
 });

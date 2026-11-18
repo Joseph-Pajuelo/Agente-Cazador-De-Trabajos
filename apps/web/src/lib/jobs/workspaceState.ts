@@ -1,5 +1,10 @@
 import { JobSummary, CrmStatus } from '../domain/types';
-import { isJobRecent, parseJobDate, sortByModalityThenRecent } from '../domain/ranking';
+import {
+  isJobRecent,
+  isJobNewToday,
+  parseJobDate,
+  sortByModalityThenRecent,
+} from '../domain/ranking';
 import { searchJobs } from '../domain/searchEngine';
 import * as jobNormalization from '../domain/jobNormalization';
 import type { RoleLevel, EnglishLevel } from '../domain/jobNormalization';
@@ -161,8 +166,9 @@ export function canMutateCrm(user: { id?: string } | null | undefined): boolean 
 
 export interface PendingCrmOverride {
   seq: number;
-  status: CrmStatus;
+  status: CrmStatus | null;
   applied_at?: string | null;
+  status_updated_at?: string | null;
   user_notes?: string | null;
   settledAt: number | null;
 }
@@ -176,28 +182,44 @@ export const RECENT_CRM_OVERRIDE_TTL_MS = 15_000;
 export function applyOptimisticCrmTransition(
   jobs: JobSummary[],
   listingId: number | string,
-  nextStatus: CrmStatus,
+  nextStatus: CrmStatus | null,
   nextNotes?: string,
-  explicitAppliedAt?: string | null
+  explicitAppliedAt?: string | null,
+  explicitUpdatedAt?: string | null
 ): JobSummary[] {
   const targetId = String(listingId);
+  const nowIso = new Date().toISOString();
 
   return jobs.map((job) => {
     if (String(job.id) !== targetId) {
       return job;
     }
 
+    if (nextStatus === null) {
+      return {
+        ...job,
+        user_status: null,
+        applied_at: null,
+        status_updated_at: null,
+        user_notes: nextNotes !== undefined ? nextNotes : job.user_notes,
+      };
+    }
+
     let appliedAt = job.applied_at;
     if (explicitAppliedAt !== undefined) {
       appliedAt = explicitAppliedAt;
     } else if (nextStatus === 'applied') {
-      appliedAt = appliedAt || new Date().toISOString();
+      appliedAt = appliedAt || nowIso;
     }
+
+    const statusUpdatedAt =
+      explicitUpdatedAt !== undefined ? explicitUpdatedAt : nowIso;
 
     return {
       ...job,
       user_status: nextStatus,
       applied_at: appliedAt,
+      status_updated_at: statusUpdatedAt,
       user_notes: nextNotes !== undefined ? nextNotes : job.user_notes,
     };
   });
@@ -237,7 +259,7 @@ export function mergeServerJobsWithPendingCrm(
       return job;
     }
 
-    if (override.settledAt !== null && job.user_status === override.status) {
+    if (override.settledAt !== null && (job.user_status ?? null) === (override.status ?? null)) {
       // Server snapshot already reflects the settled status
       if (
         override.user_notes === undefined ||
@@ -253,6 +275,10 @@ export function mergeServerJobsWithPendingCrm(
       user_status: override.status,
       applied_at:
         override.applied_at !== undefined ? override.applied_at : job.applied_at,
+      status_updated_at:
+        override.status_updated_at !== undefined
+          ? override.status_updated_at
+          : job.status_updated_at,
       user_notes:
         override.user_notes !== undefined ? override.user_notes : job.user_notes,
     };
@@ -268,6 +294,7 @@ export function rollbackJobTransition(
   previousJobState: {
     user_status?: CrmStatus | null;
     applied_at?: string | null;
+    status_updated_at?: string | null;
     user_notes?: string | null;
   }
 ): JobSummary[] {
@@ -278,6 +305,7 @@ export function rollbackJobTransition(
       ...job,
       user_status: previousJobState.user_status ?? null,
       applied_at: previousJobState.applied_at ?? null,
+      status_updated_at: previousJobState.status_updated_at ?? null,
       user_notes: previousJobState.user_notes ?? null,
     };
   });
@@ -446,12 +474,16 @@ export function filterAndSortWorkspaceJobs(
   // Exclude DB-flagged off-career / senior rows unless explicitly tracked by user
   pool = pool.filter((job) => Boolean(job.user_status) || job.engine !== 'off_career_filter');
 
-  // 2. Antiquity / Recency filter (strict 21-day ceiling across the platform)
-  const effectiveMaxAgeDays =
-    filters.maxAgeDays === null
-      ? MAX_WORKSPACE_AGE_DAYS
-      : Math.min(filters.maxAgeDays, MAX_WORKSPACE_AGE_DAYS);
-  pool = pool.filter((job) => isJobRecent(job, effectiveMaxAgeDays, now));
+  // 2. Antiquity / Recency filter (today filter or strict 21-day ceiling)
+  if (filters.maxAgeDays === 0) {
+    pool = pool.filter((job) => isJobNewToday(job, now));
+  } else {
+    const effectiveMaxAgeDays =
+      filters.maxAgeDays === null
+        ? MAX_WORKSPACE_AGE_DAYS
+        : Math.min(filters.maxAgeDays, MAX_WORKSPACE_AGE_DAYS);
+    pool = pool.filter((job) => isJobRecent(job, effectiveMaxAgeDays, now));
+  }
 
   // 3. Modality filter
   if (filters.modalities && filters.modalities.length > 0) {
@@ -591,8 +623,21 @@ export function filterAndSortWorkspaceJobs(
     agencyMatchesCount = searchOutcome.agency_matches_count || 0;
   }
 
-  // 12. Sorting (neutral: recent or modality priority without personal CV score)
-  if (filters.sortBy === 'modality_score') {
+  // 12. Sorting (selection-order descending for tracked CRM tabs; recent/modality elsewhere)
+  if (isCrmTrackedTab) {
+    pool = [...pool].sort((a, b) => {
+      const selA = Date.parse(a.status_updated_at || a.applied_at || '') || 0;
+      const selB = Date.parse(b.status_updated_at || b.applied_at || '') || 0;
+      if (selA !== selB) {
+        return selB - selA;
+      }
+      const dateA =
+        parseJobDate(a.published_date || a.published_at || a.created_at)?.getTime() || 0;
+      const dateB =
+        parseJobDate(b.published_date || b.published_at || b.created_at)?.getTime() || 0;
+      return dateB - dateA;
+    });
+  } else if (filters.sortBy === 'modality_score') {
     pool = sortByModalityThenRecent(pool);
   } else {
     pool = [...pool].sort((a, b) => {

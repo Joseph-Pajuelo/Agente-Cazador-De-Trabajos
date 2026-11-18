@@ -434,10 +434,15 @@ export function FilterSidebar({
         label:
           filters.maxAgeDays === null
             ? 'Histórico DB'
+            : filters.maxAgeDays === 0
+            ? '✨ Nuevas de hoy'
             : `${filters.maxAgeDays} días`,
         onRemove: () =>
           onChange({ ...filters, maxAgeDays: DEFAULT_WORKSPACE_FILTERS.maxAgeDays }),
-        colorClass: 'bg-slate-100 border-slate-300 text-slate-800',
+        colorClass:
+          filters.maxAgeDays === 0
+            ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+            : 'bg-slate-100 border-slate-300 text-slate-800',
       });
     }
 
@@ -830,6 +835,7 @@ export function FilterSidebar({
         <div className="filter-details-body px-4 pb-4 space-y-1.5">
           {(
             [
+              [0, '✨ Nuevas de hoy'],
               [1, 'Últimas 24 horas (24h)'],
               [3, 'Últimos 3 días (3d)'],
               [7, 'Última semana (7d)'],

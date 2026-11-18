@@ -77,7 +77,7 @@ export function PipelineBoard({ initialJobs, user }: PipelineBoardProps) {
     }
   };
 
-  const handleStageChange = async (job: JobSummary, nextStage: CrmStatus) => {
+  const handleStageChange = async (job: JobSummary, nextStage: CrmStatus | null) => {
     if (job.user_status === nextStage) return;
 
     setErrorMessage(null);
@@ -102,17 +102,31 @@ export function PipelineBoard({ initialJobs, user }: PipelineBoardProps) {
         throw new Error(res.error || 'ERROR_UPDATING_STAGE');
       }
 
-      // If backend returned explicit appliedAt, update it
-      if (res.appliedAt !== undefined) {
+      // If backend returned explicit appliedAt / updatedAt, update them
+      if (res.appliedAt !== undefined || res.updatedAt !== undefined) {
         setJobs((current) =>
           current.map((j) =>
-            String(j.id) === String(job.id) ? { ...j, applied_at: res.appliedAt } : j
+            String(j.id) === String(job.id)
+              ? {
+                  ...j,
+                  applied_at:
+                    res.appliedAt !== undefined ? res.appliedAt : j.applied_at,
+                  status_updated_at:
+                    res.updatedAt !== undefined
+                      ? res.updatedAt
+                      : j.status_updated_at,
+                }
+              : j
           )
         );
       }
 
-      const stageMeta = CRM_STATUS_META[nextStage];
-      setSuccessNotice(`Vacante movida a "${stageMeta.label}"`);
+      if (nextStage === null) {
+        setSuccessNotice('Vacante devuelta a Activas');
+      } else {
+        const stageMeta = CRM_STATUS_META[nextStage];
+        setSuccessNotice(`Vacante movida a "${stageMeta.label}"`);
+      }
       setTimeout(() => setSuccessNotice(null), 3000);
     } catch (err) {
       console.error('Error changing stage:', err);
@@ -394,10 +408,13 @@ export function PipelineBoard({ initialJobs, user }: PipelineBoardProps) {
                             </label>
                             <select
                               id={`stage-select-${job.id}`}
-                              value={job.user_status || 'to_apply'}
+                              value={job.user_status || ''}
                               disabled={isSaving}
                               onChange={(e) =>
-                                handleStageChange(job, e.target.value as CrmStatus)
+                                handleStageChange(
+                                  job,
+                                  (e.target.value || null) as CrmStatus | null
+                                )
                               }
                               className="w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 px-2.5 text-xs font-semibold text-slate-800 shadow-2xs focus:border-blue-900 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-900 disabled:opacity-50"
                               aria-label={`Cambiar etapa de postulación para ${job.title}`}
@@ -406,7 +423,8 @@ export function PipelineBoard({ initialJobs, user }: PipelineBoardProps) {
                               <option value="applied">🚀 Postulado</option>
                               <option value="interview">🎤 En entrevista</option>
                               <option value="discarded">❌ Descartada</option>
-                              <option value="to_apply">📋 Mover a &apos;Por postular&apos; (quitar)</option>
+                              <option value="to_apply">📋 Mover a &apos;Por postular&apos;</option>
+                              <option value="">↩ Regresar a Activas (quitar estado)</option>
                             </select>
                           </div>
 

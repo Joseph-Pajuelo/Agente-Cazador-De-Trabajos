@@ -2,7 +2,9 @@ import { z } from 'zod';
 
 export const crmStateSchema = z.object({
   listingId: z.number().int().positive(),
-  status: z.enum(['to_apply', 'favorite', 'applied', 'interview', 'discarded']),
+  status: z
+    .enum(['to_apply', 'favorite', 'applied', 'interview', 'discarded'])
+    .nullable(),
   notes: z.string().max(2000).optional(),
 });
 

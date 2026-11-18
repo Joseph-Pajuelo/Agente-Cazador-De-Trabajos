@@ -8,8 +8,17 @@ import {
   ArrowDown,
   Sliders,
   X,
+  Sparkles,
+  RotateCcw,
+  CheckCircle2,
 } from 'lucide-react';
-import { JobSummary, CrmStatus, ReasoningChain } from '@/lib/domain/types';
+import {
+  JobSummary,
+  CrmStatus,
+  CRM_STATUS_META,
+  ReasoningChain,
+} from '@/lib/domain/types';
+import { isJobNewToday } from '@/lib/domain/ranking';
 import {
   WorkspaceFilters,
   DEFAULT_WORKSPACE_FILTERS,
@@ -19,6 +28,7 @@ import {
   computeCrmCounts,
   requiresHistoricalQuery,
   canMutateCrm,
+  isJobEligibleForRoleLevels,
   applyOptimisticCrmTransition,
   mergeServerJobsWithPendingCrm,
   rollbackJobTransition,
@@ -291,6 +301,88 @@ export function JobsWorkspace({
     [effectivePool, filters]
   );
 
+  const newTodayCount = React.useMemo(
+    () =>
+      effectivePool.filter(
+        (job) =>
+          job.user_status !== 'discarded' &&
+          job.user_status !== 'applied' &&
+          (Boolean(job.user_status) || job.engine !== 'off_career_filter') &&
+          isJobEligibleForRoleLevels(
+            job,
+            filters.roleLevels ?? [],
+            filters.includeDiscardedAi
+          ) &&
+          isJobNewToday(job)
+      ).length,
+    [effectivePool, filters.roleLevels, filters.includeDiscardedAi]
+  );
+
+  interface ExitingCardEntry {
+    job: JobSummary;
+    index: number;
+    action: CrmStatus | 'restore';
+    timerId: number;
+  }
+  const [exitingCards, setExitingCards] = React.useState<Map<string, ExitingCardEntry>>(
+    () => new Map()
+  );
+  const [bumpedTabKey, setBumpedTabKey] = React.useState<WorkspaceCrmTab | null>(null);
+  const bumpTimerRef = React.useRef<number | null>(null);
+
+  interface UndoBannerState {
+    job: JobSummary;
+    previousStatus: CrmStatus | null;
+    previousAppliedAt?: string | null;
+    previousUpdatedAt?: string | null;
+    nextStatus: CrmStatus | null;
+    timerId: number;
+  }
+  const [undoBanner, setUndoBanner] = React.useState<UndoBannerState | null>(null);
+
+  React.useEffect(() => {
+    setExitingCards((prev) => {
+      if (prev.size === 0) return prev;
+      for (const entry of prev.values()) {
+        window.clearTimeout(entry.timerId);
+      }
+      return new Map();
+    });
+  }, [filters.crmTab]);
+
+  React.useEffect(() => {
+    return () => {
+      if (bumpTimerRef.current !== null) {
+        window.clearTimeout(bumpTimerRef.current);
+      }
+    };
+  }, []);
+
+  const displayedJobs = React.useMemo(() => {
+    if (exitingCards.size === 0) {
+      return filteredJobs.map((job) => ({
+        job,
+        exitingAction: null as CrmStatus | 'restore' | null,
+      }));
+    }
+    const activeIds = new Set(filteredJobs.map((j) => String(j.id)));
+    const list: Array<{ job: JobSummary; exitingAction: CrmStatus | 'restore' | null }> =
+      filteredJobs.map((job) => ({ job, exitingAction: null }));
+
+    const sortedExiting = Array.from(exitingCards.values())
+      .filter((entry) => !activeIds.has(String(entry.job.id)))
+      .sort((a, b) => a.index - b.index);
+
+    for (const entry of sortedExiting) {
+      const insertAt = Math.min(Math.max(0, entry.index), list.length);
+      list.splice(insertAt, 0, {
+        job: entry.job,
+        exitingAction: entry.action,
+      });
+    }
+    return list;
+  }, [filteredJobs, exitingCards]);
+
   // 5. Selected Job & Navigation in Drawer
   const selectedJob = React.useMemo(() => {
     if (!selectedJobId) return null;
@@ -393,7 +485,11 @@ export function JobsWorkspace({
     'Inicia sesión o crea una cuenta gratis para clasificar y dar seguimiento a esta postulación en tu radar personal.'
   );
 
-  const handleQuickCrmChange = (job: JobSummary, status: CrmStatus) => {
+  const handleQuickCrmChange = (
+    job: JobSummary,
+    status: CrmStatus | null,
+    options?: { skipUndoBanner?: boolean }
+  ) => {
     if (!canMutateCrm(activeUser)) {
       setAuthPrompt(
         'Inicia sesión o crea tu cuenta para guardar y clasificar vacantes en tu radar personal.'
@@ -405,27 +501,106 @@ export function JobsWorkspace({
     const targetId = job.id;
     const idKey = String(targetId);
 
-    if (pendingCrmJobIds.has(idKey) && job.user_status === status) {
+    if (pendingCrmJobIds.has(idKey) && (job.user_status ?? null) === status) {
       return;
     }
 
     const prevJobState = {
       user_status: job.user_status,
       applied_at: job.applied_at,
+      status_updated_at: job.status_updated_at,
       user_notes: job.user_notes,
     };
     const nextSeq = (mutationSeqRef.current.get(idKey) ?? 0) + 1;
     mutationSeqRef.current.set(idKey, nextSeq);
 
+    const nowIso = new Date().toISOString();
     const optimisticAppliedAt =
-      status === 'applied'
-        ? job.applied_at || new Date().toISOString()
+      status === null
+        ? null
+        : status === 'applied'
+        ? job.applied_at || nowIso
         : (job.applied_at ?? null);
+    const optimisticUpdatedAt = status === null ? null : nowIso;
+
+    const removesFromCurrentTab =
+      filters.crmTab === 'activas'
+        ? status === 'applied' || status === 'discarded'
+        : filters.crmTab !== 'todas' && status !== filters.crmTab;
+
+    if (removesFromCurrentTab && typeof window !== 'undefined') {
+      const currentIdx = filteredJobs.findIndex((j) => String(j.id) === idKey);
+      if (currentIdx !== -1) {
+        const existingEntry = exitingCards.get(idKey);
+        if (existingEntry) {
+          window.clearTimeout(existingEntry.timerId);
+        }
+        const snapshotJob: JobSummary = {
+          ...job,
+          user_status: status,
+          applied_at: optimisticAppliedAt,
+          status_updated_at: optimisticUpdatedAt,
+        };
+        const timerId = window.setTimeout(() => {
+          setExitingCards((prev) => {
+            if (!prev.has(idKey)) return prev;
+            const next = new Map(prev);
+            next.delete(idKey);
+            return next;
+          });
+        }, 180);
+        setExitingCards((prev) => {
+          const next = new Map(prev);
+          next.set(idKey, {
+            job: snapshotJob,
+            index: currentIdx,
+            action: status ?? 'restore',
+            timerId,
+          });
+          return next;
+        });
+      }
+    }
+
+    if (typeof window !== 'undefined') {
+      const destTab: WorkspaceCrmTab = status ?? 'activas';
+      if (bumpTimerRef.current !== null) {
+        window.clearTimeout(bumpTimerRef.current);
+      }
+      setBumpedTabKey(destTab);
+      bumpTimerRef.current = window.setTimeout(() => {
+        setBumpedTabKey(null);
+        bumpTimerRef.current = null;
+      }, 240);
+
+      if (!options?.skipUndoBanner) {
+        if (undoBanner?.timerId) {
+          window.clearTimeout(undoBanner.timerId);
+        }
+        const timerId = window.setTimeout(() => {
+          setUndoBanner(null);
+        }, 5500);
+        setUndoBanner({
+          job: {
+            ...job,
+            user_status: status,
+            applied_at: optimisticAppliedAt,
+            status_updated_at: optimisticUpdatedAt,
+          },
+          previousStatus: job.user_status ?? null,
+          previousAppliedAt: job.applied_at ?? null,
+          previousUpdatedAt: job.status_updated_at ?? null,
+          nextStatus: status,
+          timerId,
+        });
+      }
+    }
 
     crmOverridesRef.current.set(idKey, {
       seq: nextSeq,
       status,
       applied_at: optimisticAppliedAt,
+      status_updated_at: optimisticUpdatedAt,
       user_notes: job.user_notes ?? null,
       settledAt: null,
     });
@@ -439,7 +614,14 @@ export function JobsWorkspace({
     // Apply optimistic update immediately outside startTransition so button state
     // flips in the first frame without waiting behind heavy transition renders.
     setJobs((prev) =>
-      applyOptimisticCrmTransition(prev, targetId, status, undefined, optimisticAppliedAt)
+      applyOptimisticCrmTransition(
+        prev,
+        targetId,
+        status,
+        undefined,
+        optimisticAppliedAt,
+        optimisticUpdatedAt
+      )
     );
     setHistoricalJobs((prev) =>
       prev.length > 0
@@ -448,7 +630,8 @@ export function JobsWorkspace({
             targetId,
             status,
             undefined,
-            optimisticAppliedAt
+            optimisticAppliedAt,
+            optimisticUpdatedAt
           )
         : prev
     );
@@ -481,17 +664,30 @@ export function JobsWorkspace({
 
           const finalAppliedAt =
             res.appliedAt !== undefined ? res.appliedAt : optimisticAppliedAt;
+          const finalUpdatedAt =
+            res.updatedAt !== undefined ? res.updatedAt : optimisticUpdatedAt;
           crmOverridesRef.current.set(idKey, {
             seq: nextSeq,
             status,
             applied_at: finalAppliedAt,
+            status_updated_at: finalUpdatedAt,
             user_notes: job.user_notes ?? null,
             settledAt: Date.now(),
           });
 
-          if (res.appliedAt !== undefined && res.appliedAt !== optimisticAppliedAt) {
+          if (
+            finalAppliedAt !== optimisticAppliedAt ||
+            finalUpdatedAt !== optimisticUpdatedAt
+          ) {
             setJobs((prev) =>
-              applyOptimisticCrmTransition(prev, targetId, status, undefined, finalAppliedAt)
+              applyOptimisticCrmTransition(
+                prev,
+                targetId,
+                status,
+                undefined,
+                finalAppliedAt,
+                finalUpdatedAt
+              )
             );
             setHistoricalJobs((prev) =>
               prev.length > 0
@@ -500,7 +696,8 @@ export function JobsWorkspace({
                     targetId,
                     status,
                     undefined,
-                    finalAppliedAt
+                    finalAppliedAt,
+                    finalUpdatedAt
                   )
                 : prev
             );
@@ -536,6 +733,7 @@ export function JobsWorkspace({
         seq: nextSeq,
         status,
         applied_at: optimisticAppliedAt,
+        status_updated_at: optimisticUpdatedAt,
         user_notes: job.user_notes ?? null,
         settledAt: Date.now(),
       });
@@ -546,6 +744,24 @@ export function JobsWorkspace({
         return next;
       });
     }
+  };
+
+  const handleUndoLastCrm = () => {
+    if (!undoBanner) return;
+    const banner = undoBanner;
+    if (typeof window !== 'undefined') {
+      window.clearTimeout(banner.timerId);
+    }
+    setUndoBanner(null);
+    handleQuickCrmChange(
+      {
+        ...banner.job,
+        applied_at: banner.previousAppliedAt ?? null,
+        status_updated_at: banner.previousUpdatedAt ?? null,
+      },
+      banner.previousStatus,
+      { skipUndoBanner: true }
+    );
   };
 
   const handleSaveNotes = async (notes: string): Promise<boolean> => {
@@ -562,6 +778,7 @@ export function JobsWorkspace({
     const prevJobState = {
       user_status: selectedJob.user_status,
       applied_at: selectedJob.applied_at,
+      status_updated_at: selectedJob.status_updated_at,
       user_notes: selectedJob.user_notes,
     };
     const targetId = selectedJob.id;
@@ -574,6 +791,7 @@ export function JobsWorkspace({
       seq: nextSeq,
       status: currentStatus,
       applied_at: selectedJob.applied_at ?? null,
+      status_updated_at: selectedJob.status_updated_at ?? null,
       user_notes: notes,
       settledAt: null,
     });
@@ -620,6 +838,10 @@ export function JobsWorkspace({
             res.appliedAt !== undefined
               ? res.appliedAt
               : (selectedJob.applied_at ?? null),
+          status_updated_at:
+            res.updatedAt !== undefined
+              ? res.updatedAt
+              : (selectedJob.status_updated_at ?? null),
           user_notes: notes,
           settledAt: Date.now(),
         });
@@ -915,7 +1137,8 @@ export function JobsWorkspace({
                     >
                       <span>{tab.label}</span>
                       <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-extrabold ${
+                        data-bumped={bumpedTabKey === tab.key ? 'true' : undefined}
+                        className={`crm-tab-badge rounded-full px-2 py-0.5 text-xs font-extrabold ${
                           isActive
                             ? 'bg-white/20 text-white'
                             : 'bg-slate-100 text-slate-700'
@@ -928,14 +1151,45 @@ export function JobsWorkspace({
                 })}
               </div>
 
-              {/* Result summary and sort dropdown */}
+              {/* Result summary, Nuevas de hoy quick pill and sort dropdown */}
               <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-                <div className="flex items-center gap-2 text-sm text-slate-600">
+                <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
                   <span className="font-bold text-slate-900 text-base">
                     {filteredJobs.length === 1
                       ? '1 vacante encontrada'
                       : `${filteredJobs.length} vacantes encontradas`}
                   </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setFilters((prev) => ({
+                        ...prev,
+                        maxAgeDays:
+                          prev.maxAgeDays === 0
+                            ? DEFAULT_WORKSPACE_FILTERS.maxAgeDays
+                            : 0,
+                      }))
+                    }
+                    aria-pressed={filters.maxAgeDays === 0}
+                    className={`interactive-pill inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold border cursor-pointer ${
+                      filters.maxAgeDays === 0
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                        : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100/80'
+                    }`}
+                    title="Filtrar solo vacantes publicadas o descubiertas hoy"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    <span>Nuevas de hoy</span>
+                    <span
+                      className={`rounded-full px-1.5 py-0.5 text-[11px] font-extrabold leading-none ${
+                        filters.maxAgeDays === 0
+                          ? 'bg-white/20 text-white'
+                          : 'bg-emerald-200/70 text-emerald-950'
+                      }`}
+                    >
+                      {newTodayCount}
+                    </span>
+                  </button>
                   {isHistorical && (
                     <span className="rounded-lg bg-amber-50 px-2.5 py-0.5 text-xs font-bold text-amber-800 border border-amber-200">
                       Histórico DB
@@ -968,7 +1222,7 @@ export function JobsWorkspace({
               </div>
 
               {/* Job Cards list */}
-              {filteredJobs.length === 0 ? (
+              {displayedJobs.length === 0 ? (
                 <div className="flex flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-xs">
                   <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-600 mb-3">
                     <Inbox className="h-6 w-6" />
@@ -977,7 +1231,7 @@ export function JobsWorkspace({
                     No se encontraron vacantes con los filtros seleccionados
                   </h3>
                   <p className="mt-1 max-w-sm text-xs sm:text-sm text-slate-600">
-                    Prueba ajustando los términos de búsqueda, ampliando la fecha a «Cualquier fecha»
+                    Prueba ajustando los términos de búsqueda, cambiando el filtro de fecha
                     o restableciendo los filtros.
                   </p>
                   <button
@@ -990,7 +1244,7 @@ export function JobsWorkspace({
                 </div>
               ) : (
                 <div key={filterFeedAnimationKey} className="space-y-3 feed-filter-enter feed-stagger-cards">
-                  {filteredJobs.map((job) => (
+                  {displayedJobs.map(({ job, exitingAction }) => (
                     <JobCard
                       key={job.deduplication_hash || job.id}
                       job={job}
@@ -998,6 +1252,7 @@ export function JobsWorkspace({
                       onSelect={() => setSelectedJobId(job.id)}
                       onQuickCrmChange={handleQuickCrmChange}
                       isPendingCrm={pendingCrmJobIds.has(String(job.id))}
+                      exitingAction={exitingAction}
                     />
                   ))}
 
@@ -1095,7 +1350,42 @@ export function JobsWorkspace({
         </div>
       </dialog>
 
-      {/* 5. Guest Auth Modal */}
+      {/* 5. Undo CRM Transition Toast */}
+      {undoBanner && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="undo-toast-surface fixed bottom-5 right-5 z-40 max-w-sm rounded-2xl border border-slate-200 bg-slate-900 px-4 py-3 text-white shadow-xl flex items-center gap-3"
+        >
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+          <div className="min-w-0 flex-1 text-xs">
+            <p className="font-bold">
+              {undoBanner.nextStatus === null
+                ? 'Devuelta a «Activas»'
+                : `Marcada como «${CRM_STATUS_META[undoBanner.nextStatus].label}»`}
+            </p>
+            <p className="truncate text-slate-300">{undoBanner.job.title}</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleUndoLastCrm}
+            className="crm-action-btn inline-flex items-center gap-1 rounded-xl bg-white px-2.5 py-1.5 text-xs font-bold text-slate-900 hover:bg-slate-100 cursor-pointer shrink-0"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            <span>Deshacer</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setUndoBanner(null)}
+            aria-label="Cerrar notificación"
+            className="rounded-lg p-1 text-slate-400 hover:text-white cursor-pointer"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* 6. Guest Auth Modal */}
       <AuthModal
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}

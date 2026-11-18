@@ -304,17 +304,83 @@ details[open] > summary .details-chevron {
   .auth-mode-backward,
   .auth-card-enter,
   .auth-feedback-enter {
-    animation: auth-reduced-fade 160ms ease both !important;
+    animation: auth-reduced-fade 160ms ease both;
+  }
+}
+
+.job-card-surface {
+  opacity: 1;
+  transform: translate3d(0, 0, 0) scale(1);
+  transition:
+    transform 180ms var(--ease-out),
+    opacity 180ms var(--ease-out),
+    box-shadow 180ms var(--ease-out),
+    border-color 160ms ease,
+    background-color 160ms ease;
+}
+
+.job-card-surface[data-crm-exiting] {
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(14px, 0, 0) scale(0.985);
+}
+
+.job-card-surface[data-crm-exiting='discarded'] {
+  transform: translate3d(-12px, 4px, 0) scale(0.985);
+}
+
+.crm-action-btn {
+  transition:
+    transform 140ms var(--ease-out),
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.crm-action-btn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.crm-action-icon {
+  transition: transform 180ms var(--ease-out);
+}
+
+.crm-action-btn[aria-pressed='true'] .crm-action-icon {
+  transform: scale(1.14);
+}
+
+.crm-tab-badge {
+  transition: transform 180ms var(--ease-out), background-color 160ms ease, color 160ms ease;
+}
+
+.crm-tab-badge[data-bumped='true'] {
+  transform: scale(1.18);
+}
+
+.undo-toast-surface {
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity 200ms var(--ease-out),
+    transform 200ms var(--ease-out);
+}
+
+@starting-style {
+  .undo-toast-surface {
+    opacity: 0;
+    transform: translateY(10px);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+  .job-card-surface[data-crm-exiting],
+  .job-card-surface[data-crm-exiting='discarded'],
+  .crm-action-btn:active:not(:disabled),
+  .crm-action-btn[aria-pressed='true'] .crm-action-icon,
+  .crm-tab-badge[data-bumped='true'],
+  .undo-toast-surface {
+    transform: none;
   }
 }
 

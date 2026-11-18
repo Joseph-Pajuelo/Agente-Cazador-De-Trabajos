@@ -22,6 +22,7 @@ import {
   Bookmark,
   Star,
   Calendar,
+  RotateCcw,
 } from 'lucide-react';
 import {
   JobSummary,
@@ -30,7 +31,7 @@ import {
   SOURCE_LABELS,
   ReasoningChain,
 } from '@/lib/domain/types';
-import { getJobAgePill } from '@/lib/domain/ranking';
+import { getJobAgePill, isJobNewToday } from '@/lib/domain/ranking';
 import { collectDetectedSkills } from '@/lib/domain/jobNormalization';
 import { resolveJobNormalizedMeta } from '@/lib/jobs/workspaceState';
 import { isPointerEventOutsideRect } from '@/lib/auth/authHelpers';
@@ -46,7 +47,7 @@ export interface JobDetailDrawerProps {
   onNextJob?: () => void;
   hasPrev?: boolean;
   hasNext?: boolean;
-  onStatusChange: (status: CrmStatus) => void;
+  onStatusChange: (status: CrmStatus | null) => void;
   onSaveNotes: (notes: string) => Promise<boolean>;
 }
 
@@ -67,7 +68,7 @@ interface JobDetailDrawerContentProps {
   onNextJob?: () => void;
   hasPrev?: boolean;
   hasNext?: boolean;
-  onStatusChange: (status: CrmStatus) => void;
+  onStatusChange: (status: CrmStatus | null) => void;
   onSaveNotes: (notes: string) => Promise<boolean>;
 }
 
@@ -84,6 +85,7 @@ function JobDetailDrawerContent({
   onSaveNotes,
 }: JobDetailDrawerContentProps) {
   const agePill = React.useMemo(() => getJobAgePill(job), [job]);
+  const isNewToday = React.useMemo(() => isJobNewToday(job), [job]);
   const meta = React.useMemo(() => resolveJobNormalizedMeta(job), [job]);
 
   const [notes, setNotes] = React.useState(job.user_notes || '');
@@ -280,6 +282,12 @@ function JobDetailDrawerContent({
           ) : null}
 
           {/* Recency Age Pill */}
+          {isNewToday && (
+            <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-extrabold text-white shadow-2xs">
+              <Sparkles className="h-3 w-3" />
+              <span>Nueva hoy</span>
+            </span>
+          )}
           {agePill && (
             <span
               className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-medium ${agePill.bgClass}`}
@@ -322,12 +330,24 @@ function JobDetailDrawerContent({
 
         {/* 3. 5-Button CRM Action Bar */}
         <section aria-labelledby="drawer-crm-action-title">
-          <h3
-            id="drawer-crm-action-title"
-            className="text-xs font-bold uppercase tracking-wider text-slate-600 mb-2"
-          >
-            Estado de tu postulación
-          </h3>
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <h3
+              id="drawer-crm-action-title"
+              className="text-xs font-bold uppercase tracking-wider text-slate-600"
+            >
+              Estado de tu postulación
+            </h3>
+            {job.user_status && (
+              <button
+                type="button"
+                onClick={() => onStatusChange(null)}
+                className="crm-action-btn inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:border-blue-200 hover:bg-blue-50/70 hover:text-[#2563EB] cursor-pointer"
+              >
+                <RotateCcw className="h-3 w-3" />
+                <span>Regresar a Activas</span>
+              </button>
+            )}
+          </div>
           <div
             role="toolbar"
             aria-label="Seguimiento de postulación"
@@ -342,9 +362,14 @@ function JobDetailDrawerContent({
                 <button
                   key={btn.status}
                   type="button"
-                  onClick={() => onStatusChange(btn.status)}
+                  onClick={() => onStatusChange(isSelected ? null : btn.status)}
                   aria-pressed={isSelected}
-                  className={`flex flex-col items-center justify-center gap-1.5 rounded-xl border p-2.5 text-xs font-semibold transition-all ${
+                  title={
+                    isSelected
+                      ? `Quitar estado "${statusMeta.label}" y regresar a Activas`
+                      : `Cambiar a: ${statusMeta.description}`
+                  }
+                  className={`crm-action-btn flex flex-col items-center justify-center gap-1.5 rounded-xl border p-2.5 text-xs font-semibold cursor-pointer ${
                     isSelected
                       ? 'shadow-xs ring-2'
                       : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50 text-slate-700'
@@ -360,7 +385,7 @@ function JobDetailDrawerContent({
                       : undefined
                   }
                 >
-                  <Icon className="h-4 w-4 shrink-0" />
+                  <Icon className="crm-action-icon h-4 w-4 shrink-0" />
                   <span className="text-[11px] text-center leading-tight">
                     {btn.label}
                   </span>

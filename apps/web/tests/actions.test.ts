@@ -36,8 +36,8 @@ describe('Task 4: Supabase Auth, Middleware, Queries & Server Actions', () => {
       }
     });
 
-    it('accepts valid statuses without notes', () => {
-      const statuses = ['to_apply', 'favorite', 'applied', 'interview', 'discarded'] as const;
+    it('accepts valid statuses without notes and null to return to Activas', () => {
+      const statuses = ['to_apply', 'favorite', 'applied', 'interview', 'discarded', null] as const;
       for (const status of statuses) {
         const res = crmStateSchema.safeParse({ listingId: 1, status });
         expect(res.success).toBe(true);

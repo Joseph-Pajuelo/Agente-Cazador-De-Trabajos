@@ -265,7 +265,12 @@ export function buildHistoricalSupabaseQuery(
 
 export function mapRowToJobSummary(
   row: Record<string, unknown>,
-  userState?: { status: CrmStatus; applied_at?: string | null; notes?: string } | null
+  userState?: {
+    status: CrmStatus;
+    applied_at?: string | null;
+    updated_at?: string | null;
+    notes?: string;
+  } | null
 ): JobSummary {
   const evaluations = row.job_evaluations as
     | Array<Record<string, unknown>>
@@ -344,6 +349,7 @@ export function mapRowToJobSummary(
 
     user_status: userState?.status ?? null,
     applied_at: userState?.applied_at ?? null,
+    status_updated_at: userState?.updated_at ?? userState?.applied_at ?? null,
     user_notes: userState?.notes ?? null,
   };
 }
@@ -547,7 +553,12 @@ export async function getInitialRadarData(
     // 2. If user is signed in, fetch profile preferences and saved states in parallel
     const userStateMap = new Map<
       number,
-      { status: CrmStatus; applied_at?: string | null; notes?: string }
+      {
+        status: CrmStatus;
+        applied_at?: string | null;
+        updated_at?: string | null;
+        notes?: string;
+      }
     >();
 
     if (authUser) {
@@ -560,7 +571,7 @@ export async function getInitialRadarData(
           .maybeSingle(),
         supabase
           .from('user_job_states')
-          .select('listing_id, status, applied_at, notes')
+          .select('listing_id, status, applied_at, updated_at, notes')
           .eq('user_id', authUser.id),
       ]);
 
@@ -578,6 +589,7 @@ export async function getInitialRadarData(
           userStateMap.set(Number(s.listing_id), {
             status: s.status as CrmStatus,
             applied_at: s.applied_at,
+            updated_at: s.updated_at,
             notes: s.notes,
           });
         }
@@ -639,7 +651,7 @@ export async function getUserPipelineJobs(
 
     const { data: userStates, error: stateError } = await supabase
       .from('user_job_states')
-      .select('listing_id, status, applied_at, notes')
+      .select('listing_id, status, applied_at, updated_at, notes')
       .eq('user_id', user.id);
 
     if (stateError || !userStates || userStates.length === 0) {
@@ -658,12 +670,18 @@ export async function getUserPipelineJobs(
 
     const activeMap = new Map<
       number,
-      { status: CrmStatus; applied_at?: string | null; notes?: string }
+      {
+        status: CrmStatus;
+        applied_at?: string | null;
+        updated_at?: string | null;
+        notes?: string;
+      }
     >();
     for (const s of activeStates) {
       activeMap.set(Number(s.listing_id), {
         status: s.status as CrmStatus,
         applied_at: s.applied_at,
+        updated_at: s.updated_at,
         notes: s.notes,
       });
     }
@@ -683,7 +701,12 @@ export async function getUserPipelineJobs(
         const state = activeMap.get(Number(row.id));
         return mapRowToJobSummary(row, state);
       })
-      .filter((job) => isJobRecent(job, 21));
+      .filter((job) => isJobRecent(job, 21))
+      .sort((a, b) => {
+        const selA = Date.parse(a.status_updated_at || a.applied_at || '') || 0;
+        const selB = Date.parse(b.status_updated_at || b.applied_at || '') || 0;
+        return selB - selA;
+      });
   } catch (err) {
     console.error('getUserPipelineJobs error:', err);
     return [];

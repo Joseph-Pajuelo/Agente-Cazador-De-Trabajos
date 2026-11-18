@@ -13,9 +13,11 @@ import {
   Loader2,
   Clock,
   BadgeCheck,
+  RotateCcw,
+  Sparkles,
 } from 'lucide-react';
 import { JobSummary, CrmStatus, CRM_STATUS_META, SOURCE_LABELS } from '@/lib/domain/types';
-import { getJobAgePill } from '@/lib/domain/ranking';
+import { getJobAgePill, isJobNewToday } from '@/lib/domain/ranking';
 import { resolveJobNormalizedMeta } from '@/lib/jobs/workspaceState';
 import { collectDetectedSkills } from '@/lib/domain/jobNormalization';
 import { CompanyMonogram } from './CompanyMonogram';
@@ -24,8 +26,9 @@ export interface JobCardProps {
   job: JobSummary;
   isSelected: boolean;
   onSelect: () => void;
-  onQuickCrmChange?: (job: JobSummary, status: CrmStatus) => void;
+  onQuickCrmChange?: (job: JobSummary, status: CrmStatus | null) => void;
   isPendingCrm?: boolean;
+  exitingAction?: CrmStatus | 'restore' | null;
   onToggleFavorite?: (job: JobSummary) => void;
 }
 
@@ -112,9 +115,11 @@ export function JobCard({
   onSelect,
   onQuickCrmChange,
   isPendingCrm = false,
+  exitingAction = null,
   onToggleFavorite,
 }: JobCardProps) {
   const agePill = React.useMemo(() => getJobAgePill(job), [job]);
+  const isNewToday = React.useMemo(() => isJobNewToday(job), [job]);
   const meta = React.useMemo(() => resolveJobNormalizedMeta(job), [job]);
 
   const locationString = React.useMemo(() => {
@@ -137,8 +142,9 @@ export function JobCard({
 
   const handleCrmClick = (status: CrmStatus) => (e: React.MouseEvent) => {
     e.stopPropagation();
+    const nextStatus = job.user_status === status ? null : status;
     if (onQuickCrmChange) {
-      onQuickCrmChange(job, status);
+      onQuickCrmChange(job, nextStatus);
     } else if (status === 'favorite' && onToggleFavorite) {
       onToggleFavorite(job);
     }
@@ -148,7 +154,8 @@ export function JobCard({
 
   return (
     <article
-      className={`group relative flex flex-col rounded-2xl border transition-[transform,box-shadow,border-color,background-color] duration-200 ease-[var(--ease-out)] text-left bg-white ${
+      data-crm-exiting={exitingAction || undefined}
+      className={`job-card-surface group relative flex flex-col rounded-2xl border text-left bg-white ${
         isSelected
           ? 'border-[#2563EB] bg-blue-50/20 shadow-md ring-2 ring-[#2563EB]/25 -translate-y-[1px]'
           : 'border-slate-200/90 hover:border-blue-300 hover:shadow-md hover:-translate-y-[1px]'
@@ -181,6 +188,12 @@ export function JobCard({
         <div className="flex items-center justify-between gap-2 pr-8">
           <div className="flex items-center gap-2 flex-wrap">
             {renderPortalSourceBadge(job.source, portalLabel)}
+            {isNewToday && (
+              <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-extrabold text-white shadow-2xs">
+                <Sparkles className="h-3 w-3" />
+                <span>Nueva hoy</span>
+              </span>
+            )}
             {job.resolved_via_agency && (
               <span className="inline-flex items-center rounded-lg bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700 border border-indigo-200">
                 Vía Agencia
@@ -314,10 +327,14 @@ export function JobCard({
                 onClick={handleCrmClick(item.key)}
                 disabled={isPendingCrm}
                 aria-pressed={isCurrent}
-                title={`${isCurrent ? 'Estado actual: ' : 'Cambiar a: '}${metaInfo.description}`}
-                className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold border transition-all ${
+                title={
                   isCurrent
-                    ? 'font-bold shadow-xs scale-[1.02] disabled:opacity-90'
+                    ? `Quitar estado "${metaInfo.label}" y regresar a Activas`
+                    : `Cambiar a: ${metaInfo.description}`
+                }
+                className={`crm-action-btn inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold border cursor-pointer ${
+                  isCurrent
+                    ? 'font-bold shadow-xs disabled:opacity-90'
                     : 'bg-white text-slate-600 border-slate-200 hover:bg-blue-50/50 hover:text-[#2563EB] hover:border-blue-200 disabled:opacity-50'
                 }`}
                 style={
@@ -334,7 +351,7 @@ export function JobCard({
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
                   <Icon
-                    className={`h-3.5 w-3.5 ${
+                    className={`crm-action-icon h-3.5 w-3.5 ${
                       isCurrent && item.key === 'favorite'
                         ? 'fill-current text-amber-500'
                         : ''
@@ -345,6 +362,21 @@ export function JobCard({
               </button>
             );
           })}
+          {job.user_status && !exitingAction && onQuickCrmChange && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onQuickCrmChange(job, null);
+              }}
+              disabled={isPendingCrm}
+              title="Quitar estado actual y devolver la oferta a Activas"
+              className="crm-action-btn inline-flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:text-[#2563EB] hover:bg-blue-50/70 border border-transparent hover:border-blue-200 cursor-pointer disabled:opacity-50"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              <span>Regresar a Activas</span>
+            </button>
+          )}
         </div>
       </div>
     </article>

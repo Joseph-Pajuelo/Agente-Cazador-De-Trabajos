@@ -8,9 +8,14 @@ export type { CrmStateInput };
 
 export async function upsertJobState(input: {
   listingId: number;
-  status: CrmStatus;
+  status: CrmStatus | null;
   notes?: string;
-}): Promise<{ ok: boolean; error?: string; appliedAt?: string | null }> {
+}): Promise<{
+  ok: boolean;
+  error?: string;
+  appliedAt?: string | null;
+  updatedAt?: string | null;
+}> {
   const parsed = crmStateSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, error: 'INVALID_INPUT' };
@@ -31,6 +36,21 @@ export async function upsertJobState(input: {
       return { ok: false, error: 'AUTH_REQUIRED' };
     }
 
+    if (parsed.data.status === null) {
+      const { error: deleteError } = await supabase
+        .from('user_job_states')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('listing_id', parsed.data.listingId);
+
+      if (deleteError) {
+        console.error('upsertJobState delete error:', deleteError);
+        return { ok: false, error: deleteError.message };
+      }
+
+      return { ok: true, appliedAt: null, updatedAt: null };
+    }
+
     // Determine applied_at timestamp
     let appliedAt: string | null = null;
     const { data: existing } = await supabase
@@ -46,6 +66,7 @@ export async function upsertJobState(input: {
       appliedAt = existing?.applied_at ?? null;
     }
 
+    const updatedAt = new Date().toISOString();
     const { error: upsertError } = await supabase.from('user_job_states').upsert(
       {
         user_id: user.id,
@@ -53,7 +74,7 @@ export async function upsertJobState(input: {
         status: parsed.data.status,
         notes: (parsed.data.notes ?? '').trim(),
         applied_at: appliedAt,
-        updated_at: new Date().toISOString(),
+        updated_at: updatedAt,
       },
       { onConflict: 'user_id,listing_id' }
     );
@@ -63,7 +84,7 @@ export async function upsertJobState(input: {
       return { ok: false, error: upsertError.message };
     }
 
-    return { ok: true, appliedAt };
+    return { ok: true, appliedAt, updatedAt };
   } catch (err: unknown) {
     console.error('upsertJobState exception:', err);
     return { ok: false, error: 'AUTH_REQUIRED' };
