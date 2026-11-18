@@ -102,7 +102,7 @@ class LinkedInGuestAdapter(BaseJobAdapter):
                         for item in parsed_items:
                             if item["url"] in skip_urls:
                                 continue
-                            if not is_within_max_age_days(item.get("published_at"), max_days=14):
+                            if not is_within_max_age_days(item.get("published_at"), max_days=21):
                                 continue
                             if should_skip_candidate_title(item["title"]):
                                 continue

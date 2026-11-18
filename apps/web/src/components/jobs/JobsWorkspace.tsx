@@ -12,6 +12,7 @@ import {
 import { JobSummary, CrmStatus, ReasoningChain } from '@/lib/domain/types';
 import {
   WorkspaceFilters,
+  DEFAULT_WORKSPACE_FILTERS,
   WorkspaceCrmTab,
   WorkspaceSortBy,
   PendingCrmOverride,
@@ -767,7 +768,7 @@ export function JobsWorkspace({
 
     count += filters.sources.length;
     if (filters.includeDiscardedAi) count++;
-    if (filters.maxAgeDays !== 14) count++;
+    if (filters.maxAgeDays !== DEFAULT_WORKSPACE_FILTERS.maxAgeDays) count++;
 
     return count;
   }, [filters, profileExcludedDistricts]);

@@ -179,7 +179,9 @@ def run_pipeline(
         generate_pdf_report(recommended, CANDIDATE_PROFILE["name"], str(pdf_path))
         logger.info(f"Reporte PDF generado en: {pdf_path}")
 
-    # Consolidar WAL si aplica
+    # Purgar vacantes > 21 días y consolidar WAL si aplica
+    if hasattr(db, "purge_expired_listings"):
+        db.purge_expired_listings(max_age_days=21)
     db.checkpoint()
 
     if on_progress:

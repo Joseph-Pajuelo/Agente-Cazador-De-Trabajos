@@ -1,5 +1,6 @@
 import os
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Tuple, Set, Dict, Any
 
 from domain.models import JobListing, JobEvaluation
@@ -65,6 +66,9 @@ class SupabaseRepository(JobRepository):
             listing.compute_hash()
 
         enrichment = normalize_listing_enrichment(listing)
+        pub_date = enrichment["published_date"] or datetime.now(
+            timezone(timedelta(hours=-5))
+        ).strftime("%Y-%m-%d")
 
         payload = {
             "deduplication_hash": listing.deduplication_hash,
@@ -77,7 +81,7 @@ class SupabaseRepository(JobRepository):
             "salary": listing.salary,
             "raw_description": listing.raw_description,
             "published_at": listing.published_at,
-            "published_date": enrichment["published_date"],
+            "published_date": pub_date,
             "company_logo_url": listing.company_logo_url,
             "resolved_brand_key": enrichment["resolved_brand_key"],
             "resolved_via_agency": bool(enrichment["resolved_via_agency"]),
@@ -220,6 +224,47 @@ class SupabaseRepository(JobRepository):
             }
             flat_results.append(combined)
         return flat_results
+
+    def purge_expired_listings(self, max_age_days: int = 21) -> int:
+        """Elimina vacantes mayores a max_age_days sin tocar las que tienen seguimiento en user_job_states."""
+        cutoff_date = (
+            datetime.now(timezone(timedelta(hours=-5))) - timedelta(days=max_age_days)
+        ).strftime("%Y-%m-%d")
+        try:
+            states_resp = self.client.table("user_job_states").select("listing_id").execute()
+            protected_ids = {
+                row["listing_id"]
+                for row in (states_resp.data or [])
+                if row.get("listing_id") is not None
+            }
+
+            listings_resp = (
+                self.client.table("job_listings")
+                .select("id, published_date, created_at")
+                .execute()
+            )
+            expired_ids = []
+            for row in listings_resp.data or []:
+                row_id = row.get("id")
+                if row_id is None or row_id in protected_ids:
+                    continue
+                pub = str(row.get("published_date") or "").strip()[:10]
+                created = str(row.get("created_at") or "").strip()[:10]
+                effective_date = pub or created
+                if effective_date and effective_date < cutoff_date:
+                    expired_ids.append(row_id)
+
+            for i in range(0, len(expired_ids), 200):
+                batch = expired_ids[i : i + 200]
+                self.client.table("job_listings").delete().in_("id", batch).execute()
+
+            logger.info(
+                f"Purga de vacantes >{max_age_days} días (<{cutoff_date}): {len(expired_ids)} eliminadas."
+            )
+            return len(expired_ids)
+        except Exception as e:
+            logger.error(f"Error purging expired listings from Supabase: {e}")
+            return 0
 
     def checkpoint(self) -> None:
         """No-op en Supabase: las escrituras HTTP se confirman de inmediato."""

@@ -168,7 +168,7 @@ class PracticasPeAdapter(BaseJobAdapter):
                                     continue
 
                                 published_at = extract_json_ld_date_posted(detail_resp.text)
-                                if not is_within_max_age_days(published_at, max_days=14):
+                                if not is_within_max_age_days(published_at, max_days=21):
                                     continue
 
                                 detail_soup = BeautifulSoup(detail_resp.text, "html.parser")

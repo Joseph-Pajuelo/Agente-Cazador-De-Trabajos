@@ -443,4 +443,47 @@ def test_supabase_get_known_urls_paginates_past_1000():
     assert select_mock.range.call_count == 2
 
 
+def test_supabase_purge_expired_listings_respects_21d_and_protected_ids():
+    from datetime import timedelta, timezone
+
+    mock_client = MagicMock()
+    now_pe = datetime.now(timezone(timedelta(hours=-5)))
+    recent_date = (now_pe - timedelta(days=5)).strftime("%Y-%m-%d")
+    old_date = (now_pe - timedelta(days=25)).strftime("%Y-%m-%d")
+    old_created = f"{old_date}T12:00:00Z"
+
+    states_table = MagicMock()
+    states_table.select.return_value.execute.return_value = MagicMock(
+        data=[{"listing_id": 2}]
+    )
+
+    listings_table = MagicMock()
+    listings_table.select.return_value.execute.return_value = MagicMock(
+        data=[
+            {"id": 1, "published_date": recent_date, "created_at": None},
+            {"id": 2, "published_date": old_date, "created_at": None},  # protected by CRM state
+            {"id": 3, "published_date": old_date, "created_at": None},  # expired
+            {"id": 4, "published_date": None, "created_at": old_created},  # expired via created_at fallback
+        ]
+    )
+    delete_in_mock = MagicMock()
+    delete_in_mock.execute.return_value = MagicMock(data=[])
+    listings_table.delete.return_value.in_.return_value = delete_in_mock
+
+    def table_router(table_name):
+        if table_name == "user_job_states":
+            return states_table
+        if table_name == "job_listings":
+            return listings_table
+        return MagicMock()
+
+    mock_client.table.side_effect = table_router
+
+    repo = SupabaseRepository(client=mock_client)
+    purged = repo.purge_expired_listings(max_age_days=21)
+    assert purged == 2
+    listings_table.delete.return_value.in_.assert_called_once_with("id", [3, 4])
+
+
+
 

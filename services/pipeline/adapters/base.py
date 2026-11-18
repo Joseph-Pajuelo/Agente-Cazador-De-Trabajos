@@ -86,7 +86,7 @@ def extract_json_ld_date_posted(html: Optional[str]) -> Optional[str]:
     return match.group(1) if match else None
 
 
-def is_within_max_age_days(date_str: Optional[str], max_days: int = 14, now: Optional[datetime] = None) -> bool:
+def is_within_max_age_days(date_str: Optional[str], max_days: int = 21, now: Optional[datetime] = None) -> bool:
     """Retorna True si date_str está dentro de max_days o si no es parseable."""
     if not date_str:
         return True

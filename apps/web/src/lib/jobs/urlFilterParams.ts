@@ -328,7 +328,7 @@ export function serializeFiltersToSearchParams(
   // 8. Time / maxAgeDays
   if (filters.maxAgeDays === null) {
     params.set('time', 'all');
-  } else if (filters.maxAgeDays !== 14) {
+  } else if (filters.maxAgeDays !== DEFAULT_WORKSPACE_FILTERS.maxAgeDays) {
     params.set('time', String(filters.maxAgeDays));
   }
 

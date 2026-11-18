@@ -104,7 +104,7 @@ class ComputrabajoAdapter(BaseJobAdapter):
                     for item in items:
                         if item["url"] in skip_urls:
                             continue
-                        if not is_within_max_age_days(item.get("published_at"), max_days=14):
+                        if not is_within_max_age_days(item.get("published_at"), max_days=21):
                             continue
                         if should_skip_candidate_title(item["title"]):
                             continue
@@ -121,7 +121,7 @@ class ComputrabajoAdapter(BaseJobAdapter):
                 published_at = item.get("published_at") or (
                     extract_json_ld_date_posted(resp.text) if resp else None
                 )
-                if not is_within_max_age_days(published_at, max_days=14):
+                if not is_within_max_age_days(published_at, max_days=21):
                     continue
                 if not description:
                     description = f"{item['title']} en {item['company']} ({item['location']})."

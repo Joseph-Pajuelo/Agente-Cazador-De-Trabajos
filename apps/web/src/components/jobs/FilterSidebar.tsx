@@ -68,7 +68,7 @@ export function clearFilterCriteria(filters: WorkspaceFilters): WorkspaceFilters
     modalities: ['Híbrido', 'Presencial', 'Remoto'],
     sources: [],
     salaryFilter: 'any',
-    maxAgeDays: 14,
+    maxAgeDays: DEFAULT_WORKSPACE_FILTERS.maxAgeDays,
     minScore: 0,
     includeDiscardedAi: false,
   };
@@ -428,14 +428,15 @@ export function FilterSidebar({
     }
 
     // 10. Publication date / maxAgeDays
-    if (filters.maxAgeDays !== 14) {
+    if (filters.maxAgeDays !== DEFAULT_WORKSPACE_FILTERS.maxAgeDays) {
       list.push({
         id: 'max-age',
         label:
           filters.maxAgeDays === null
             ? 'Histórico DB'
             : `${filters.maxAgeDays} días`,
-        onRemove: () => onChange({ ...filters, maxAgeDays: 14 }),
+        onRemove: () =>
+          onChange({ ...filters, maxAgeDays: DEFAULT_WORKSPACE_FILTERS.maxAgeDays }),
         colorClass: 'bg-slate-100 border-slate-300 text-slate-800',
       });
     }
@@ -833,8 +834,7 @@ export function FilterSidebar({
               [3, 'Últimos 3 días (3d)'],
               [7, 'Última semana (7d)'],
               [14, 'Últimas 2 semanas (14d)'],
-              [30, 'Último mes (30d)'],
-              [null, 'Histórico DB (Cualquier fecha)'],
+              [21, 'Últimas 3 semanas (21d)'],
             ] as const
           ).map(([days, label]) => {
             const isSelected = filters.maxAgeDays === days;

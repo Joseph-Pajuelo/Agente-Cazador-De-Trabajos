@@ -126,7 +126,7 @@ class BumeranAdapter(BaseJobAdapter):
                         any_within_age = False
                         for parsed in self.parse_api_items(items):
                             pub_str = parsed.get("published_at")
-                            if not is_within_max_age_days(pub_str, max_days=14):
+                            if not is_within_max_age_days(pub_str, max_days=21):
                                 continue
                             any_within_age = True
                             if parsed["url"] in seen_urls or len(listings) >= limit:

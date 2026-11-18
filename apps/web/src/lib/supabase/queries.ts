@@ -11,6 +11,7 @@ import { RoleLevel, EnglishLevel } from '../domain/jobNormalization';
 import { SalaryFilterKey } from '../jobs/workspaceState';
 import { resolveBrandOrSectorFromQuery } from '../domain/companies';
 import { suggestCorrections } from '../domain/searchEngine';
+import { isJobRecent } from '../domain/ranking';
 
 export interface HistoricalSearchParams {
   query?: string;
@@ -454,14 +455,16 @@ async function fetchRecentPublicEvaluatedRowsRaw(): Promise<
   Record<string, unknown>[]
 > {
   const supabase = createPublicClient();
-  const cutoff90d = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+  const cutoff21d = new Date(Date.now() - 21 * 24 * 60 * 60 * 1000)
     .toISOString()
     .split('T')[0];
 
   const { data, error } = await supabase
     .from('job_listings')
     .select(JOB_WITH_EVALUATION_SELECT)
-    .or(`published_date.gte.${cutoff90d},published_date.is.null`)
+    .or(
+      `published_date.gte.${cutoff21d},and(published_date.is.null,created_at.gte.${cutoff21d}T00:00:00Z)`
+    )
     .order('created_at', { ascending: false })
     .limit(1000);
 
@@ -474,7 +477,7 @@ async function fetchRecentPublicEvaluatedRowsRaw(): Promise<
 
 const getCachedPublicEvaluatedRows = unstable_cache(
   fetchRecentPublicEvaluatedRowsRaw,
-  ['public-radar-listings-v1'],
+  ['public-radar-listings-v2-21d'],
   { revalidate: 60, tags: ['radar-listings'] }
 );
 
@@ -539,7 +542,7 @@ export async function getInitialRadarData(
       };
     }
 
-    let listings = listingsResult.rows;
+    const listings = listingsResult.rows;
 
     // 2. If user is signed in, fetch profile preferences and saved states in parallel
     const userStateMap = new Map<
@@ -578,32 +581,10 @@ export async function getInitialRadarData(
             notes: s.notes,
           });
         }
-
-        // Check if there are user-tracked listings older than 90d not in the fetched batch
-        const existingIds = new Set(
-          listings.map((l: Record<string, unknown>) => Number(l.id))
-        );
-        const missingIds = userStates
-          .map((s: { listing_id: number | string }) => Number(s.listing_id))
-          .filter((id) => !existingIds.has(id));
-
-        if (missingIds.length > 0) {
-          const { data: extraListings } = await supabase
-            .from('job_listings')
-            .select(JOB_WITH_EVALUATION_SELECT)
-            .in('id', missingIds);
-
-          if (extraListings) {
-            listings = [
-              ...listings,
-              ...(extraListings as Record<string, unknown>[]),
-            ];
-          }
-        }
       }
     }
 
-    // 4. Map to JobSummary array, filter DB-marked off-career rows, and compute lastUpdated
+    // 4. Map to JobSummary array, enforce <=21d max age & filter off-career rows, and compute lastUpdated
     let maxTimestamp: string | null = null;
     const jobs: JobSummary[] = listings
       .map((row: Record<string, unknown>) => {
@@ -614,7 +595,11 @@ export async function getInitialRadarData(
         const userState = userStateMap.get(Number(row.id)) || null;
         return mapRowToJobSummary(row, userState);
       })
-      .filter((job) => job.user_status !== null || job.engine !== 'off_career_filter');
+      .filter(
+        (job) =>
+          isJobRecent(job, 21) &&
+          (job.user_status !== null || job.engine !== 'off_career_filter')
+      );
 
     return {
       jobs,
@@ -693,10 +678,12 @@ export async function getUserPipelineJobs(
       return [];
     }
 
-    return listings.map((row: Record<string, unknown>) => {
-      const state = activeMap.get(Number(row.id));
-      return mapRowToJobSummary(row, state);
-    });
+    return listings
+      .map((row: Record<string, unknown>) => {
+        const state = activeMap.get(Number(row.id));
+        return mapRowToJobSummary(row, state);
+      })
+      .filter((job) => isJobRecent(job, 21));
   } catch (err) {
     console.error('getUserPipelineJobs error:', err);
     return [];

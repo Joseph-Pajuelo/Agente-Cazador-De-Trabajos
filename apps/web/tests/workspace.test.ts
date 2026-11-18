@@ -163,28 +163,30 @@ describe('Workspace State & Pure Reducer Helpers', () => {
   const fixedNow = new Date('2026-11-13T12:00:00.000Z');
 
   describe('1. computeCrmCounts', () => {
-    it('accurately counts jobs per CRM tab and excludes AI-discarded by default', () => {
-      const counts = computeCrmCounts(sampleJobs);
+    it('accurately counts jobs per CRM tab and excludes AI-discarded and >21d jobs by default', () => {
+      const counts = computeCrmCounts(sampleJobs, { now: fixedNow });
 
-      // Job 4 is AI discarded (is_pre_professional: false, no user_status), so visible pool has 5 jobs:
-      // Job 1 (null status) -> Activa, Todas
-      // Job 2 (favorite)    -> Activa, Destacada, Todas
-      // Job 3 (applied)     -> Activa, Postulado, Todas
-      // Job 5 (discarded)   -> Descartada, Todas
-      // Job 6 (to_apply)    -> Activa, Por postular, Todas
-      expect(counts.todas).toBe(5);
-      expect(counts.activas).toBe(4); // jobs 1, 2, 3, 6 (not discarded by user)
+      // Job 4 is AI discarded (no user_status) and Job 6 (2026-10-10) is >21d old, so visible pool has 4 jobs:
+      // Job 1 (null status, 3d)   -> Activa, Todas
+      // Job 2 (favorite, 5d)      -> Activa, Destacada, Todas
+      // Job 3 (applied, 12d)      -> Activa, Postulado, Todas
+      // Job 5 (discarded, 11d)    -> Descartada, Todas
+      expect(counts.todas).toBe(4);
+      expect(counts.activas).toBe(3); // jobs 1, 2, 3 (not discarded by user and <=21d)
       expect(counts.favorite).toBe(1); // job 2
       expect(counts.applied).toBe(1); // job 3
-      expect(counts.to_apply).toBe(1); // job 6
+      expect(counts.to_apply).toBe(0); // job 6 excluded because >21d old
       expect(counts.interview).toBe(0);
       expect(counts.discarded).toBe(1); // job 5
     });
 
-    it('includes AI-discarded jobs when includeDiscardedAi is true', () => {
-      const counts = computeCrmCounts(sampleJobs, { includeDiscardedAi: true });
-      expect(counts.todas).toBe(6);
-      expect(counts.activas).toBe(5);
+    it('includes AI-discarded jobs when includeDiscardedAi is true while still discarding >21d jobs', () => {
+      const counts = computeCrmCounts(sampleJobs, {
+        includeDiscardedAi: true,
+        now: fixedNow,
+      });
+      expect(counts.todas).toBe(5);
+      expect(counts.activas).toBe(4);
     });
   });
 
@@ -267,23 +269,23 @@ describe('Workspace State & Pure Reducer Helpers', () => {
       expect(result.jobs[0].id).toBe(2);
     });
 
-    it('filters by CRM tab "activas" excluding discarded jobs', () => {
+    it('filters by CRM tab "activas" excluding discarded and >21d jobs', () => {
       const filters: WorkspaceFilters = {
         ...DEFAULT_WORKSPACE_FILTERS,
         crmTab: 'activas',
-        maxAgeDays: 60, // allow older jobs to test tab logic cleanly
+        maxAgeDays: 21,
       };
       const result = filterAndSortWorkspaceJobs(sampleJobs, filters, fixedNow);
       const ids = result.jobs.map((j) => j.id);
       expect(ids).toContain(1);
       expect(ids).toContain(2);
       expect(ids).toContain(3);
-      expect(ids).toContain(6);
+      expect(ids).not.toContain(6); // >21 days old (2026-10-10)
       expect(ids).not.toContain(5); // discarded by user
       expect(ids).not.toContain(4); // discarded by AI
     });
 
-    it('respects default maxAgeDays: 14 antiquity filter', () => {
+    it('respects maxAgeDays: 14 antiquity filter', () => {
       const filters: WorkspaceFilters = {
         ...DEFAULT_WORKSPACE_FILTERS,
         crmTab: 'todas',
@@ -294,18 +296,60 @@ describe('Workspace State & Pure Reducer Helpers', () => {
       expect(ids).toContain(1); // 3d
       expect(ids).toContain(2); // 5d
       expect(ids).toContain(3); // 12d
-      expect(ids).not.toContain(6); // >30d
+      expect(ids).not.toContain(6); // >21d
     });
 
-    it('includes historical jobs when maxAgeDays is null ("Cualquier fecha")', () => {
-      const filters: WorkspaceFilters = {
-        ...DEFAULT_WORKSPACE_FILTERS,
-        crmTab: 'todas',
-        maxAgeDays: null,
-      };
-      const result = filterAndSortWorkspaceJobs(sampleJobs, filters, fixedNow);
-      const ids = result.jobs.map((j) => j.id);
-      expect(ids).toContain(6); // Job from October included!
+    it('includes 18-day jobs up to the 21-day ceiling while always discarding >21d jobs even when maxAgeDays is null or 60', () => {
+      const jobsWith18d: JobSummary[] = [
+        ...sampleJobs,
+        {
+          id: 9,
+          deduplication_hash: 'hash-9-18d',
+          source: 'linkedin',
+          title: 'Practicante Pre Profesional Cloud 18d',
+          company: 'Interbank',
+          location: 'San Isidro, Lima',
+          modality: 'Híbrido',
+          url: 'https://ejemplo.pe/interbank-9',
+          salary: 'S/. 1,500',
+          published_at: null,
+          published_date: '2026-10-26', // 18 days old at 2026-11-13
+          resolved_brand_key: 'interbank',
+          resolved_via_agency: false,
+          agency_clue: '',
+          sector_hint: 'banca',
+          role_level: 'preprofesional',
+          is_pre_professional: true,
+          is_unrealistic_or_smoke: false,
+          final_ranking_score: 80.0,
+          user_status: null,
+          user_notes: null,
+        },
+      ];
+
+      const at21 = filterAndSortWorkspaceJobs(
+        jobsWith18d,
+        { ...DEFAULT_WORKSPACE_FILTERS, crmTab: 'todas', maxAgeDays: 21 },
+        fixedNow
+      );
+      expect(at21.jobs.map((j) => j.id)).toContain(9);
+      expect(at21.jobs.map((j) => j.id)).not.toContain(6);
+
+      const atNull = filterAndSortWorkspaceJobs(
+        jobsWith18d,
+        { ...DEFAULT_WORKSPACE_FILTERS, crmTab: 'todas', maxAgeDays: null },
+        fixedNow
+      );
+      expect(atNull.jobs.map((j) => j.id)).toContain(9);
+      expect(atNull.jobs.map((j) => j.id)).not.toContain(6);
+
+      const at60 = filterAndSortWorkspaceJobs(
+        jobsWith18d,
+        { ...DEFAULT_WORKSPACE_FILTERS, crmTab: 'todas', maxAgeDays: 60 },
+        fixedNow
+      );
+      expect(at60.jobs.map((j) => j.id)).toContain(9);
+      expect(at60.jobs.map((j) => j.id)).not.toContain(6);
     });
 
     it('filters by modality', () => {

@@ -54,13 +54,15 @@ export interface WorkspaceFilters {
   selectedJobId?: number | string | null;
 }
 
+export const MAX_WORKSPACE_AGE_DAYS = 21;
+
 export const DEFAULT_WORKSPACE_FILTERS: WorkspaceFilters = {
   search: '',
   crmTab: 'activas',
   modalities: ['Híbrido', 'Presencial', 'Remoto'],
   sources: [],
   minScore: 0,
-  maxAgeDays: 14,
+  maxAgeDays: MAX_WORKSPACE_AGE_DAYS,
   sortBy: 'recent',
   includeDiscardedAi: false,
   includedDistricts: [],
@@ -98,18 +100,16 @@ export interface WorkspaceFilterResult {
  */
 export function computeCrmCounts(
   jobs: JobSummary[],
-  options?: { includeDiscardedAi?: boolean }
+  options?: { includeDiscardedAi?: boolean; now?: Date }
 ): CrmCounts {
   const includeAi = Boolean(options?.includeDiscardedAi);
 
   const visibleJobs = jobs.filter((job) => {
+    if (!isJobRecent(job, MAX_WORKSPACE_AGE_DAYS, options?.now)) return false;
     if (job.user_status) return true;
     if (job.engine === 'off_career_filter') return false;
     if (includeAi) return true;
-    if (job.is_pre_professional === false || job.is_unrealistic_or_smoke === true) {
-      return false;
-    }
-    return true;
+    return isJobEligibleForRoleLevels(job, ['preprofesional'], false);
   });
 
   const counts: CrmCounts = {
@@ -446,10 +446,12 @@ export function filterAndSortWorkspaceJobs(
   // Exclude DB-flagged off-career / senior rows unless explicitly tracked by user
   pool = pool.filter((job) => Boolean(job.user_status) || job.engine !== 'off_career_filter');
 
-  // 2. Antiquity / Recency filter (only if not "Cualquier fecha")
-  if (filters.maxAgeDays !== null) {
-    pool = pool.filter((job) => isJobRecent(job, filters.maxAgeDays!, now));
-  }
+  // 2. Antiquity / Recency filter (strict 21-day ceiling across the platform)
+  const effectiveMaxAgeDays =
+    filters.maxAgeDays === null
+      ? MAX_WORKSPACE_AGE_DAYS
+      : Math.min(filters.maxAgeDays, MAX_WORKSPACE_AGE_DAYS);
+  pool = pool.filter((job) => isJobRecent(job, effectiveMaxAgeDays, now));
 
   // 3. Modality filter
   if (filters.modalities && filters.modalities.length > 0) {
