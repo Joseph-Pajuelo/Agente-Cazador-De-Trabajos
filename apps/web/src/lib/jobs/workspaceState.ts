@@ -123,7 +123,7 @@ export function computeCrmCounts(
   };
 
   for (const job of visibleJobs) {
-    if (job.user_status !== 'discarded') {
+    if (job.user_status !== 'discarded' && job.user_status !== 'applied') {
       counts.activas++;
     }
 
@@ -480,7 +480,9 @@ export function filterAndSortWorkspaceJobs(
 
   // 6. CRM Tab filter
   if (filters.crmTab === 'activas') {
-    pool = pool.filter((job) => job.user_status !== 'discarded');
+    pool = pool.filter(
+      (job) => job.user_status !== 'discarded' && job.user_status !== 'applied'
+    );
   } else if (filters.crmTab === 'to_apply') {
     pool = pool.filter((job) => job.user_status === 'to_apply');
   } else if (filters.crmTab === 'favorite') {

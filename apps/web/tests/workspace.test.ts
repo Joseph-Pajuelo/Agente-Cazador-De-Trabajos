@@ -163,16 +163,16 @@ describe('Workspace State & Pure Reducer Helpers', () => {
   const fixedNow = new Date('2026-11-13T12:00:00.000Z');
 
   describe('1. computeCrmCounts', () => {
-    it('accurately counts jobs per CRM tab and excludes AI-discarded and >21d jobs by default', () => {
+    it('accurately counts jobs per CRM tab and excludes AI-discarded, applied, and >21d jobs from activas', () => {
       const counts = computeCrmCounts(sampleJobs, { now: fixedNow });
 
       // Job 4 is AI discarded (no user_status) and Job 6 (2026-10-10) is >21d old, so visible pool has 4 jobs:
       // Job 1 (null status, 3d)   -> Activa, Todas
       // Job 2 (favorite, 5d)      -> Activa, Destacada, Todas
-      // Job 3 (applied, 12d)      -> Activa, Postulado, Todas
+      // Job 3 (applied, 12d)      -> Postulado, Todas (excluded from Activa)
       // Job 5 (discarded, 11d)    -> Descartada, Todas
       expect(counts.todas).toBe(4);
-      expect(counts.activas).toBe(3); // jobs 1, 2, 3 (not discarded by user and <=21d)
+      expect(counts.activas).toBe(2); // jobs 1, 2 (not discarded or applied by user, and <=21d)
       expect(counts.favorite).toBe(1); // job 2
       expect(counts.applied).toBe(1); // job 3
       expect(counts.to_apply).toBe(0); // job 6 excluded because >21d old
@@ -180,13 +180,13 @@ describe('Workspace State & Pure Reducer Helpers', () => {
       expect(counts.discarded).toBe(1); // job 5
     });
 
-    it('includes AI-discarded jobs when includeDiscardedAi is true while still discarding >21d jobs', () => {
+    it('includes AI-discarded jobs when includeDiscardedAi is true while still discarding >21d and applied jobs from activas', () => {
       const counts = computeCrmCounts(sampleJobs, {
         includeDiscardedAi: true,
         now: fixedNow,
       });
       expect(counts.todas).toBe(5);
-      expect(counts.activas).toBe(4);
+      expect(counts.activas).toBe(3); // jobs 1, 2, 4
     });
   });
 
@@ -269,7 +269,7 @@ describe('Workspace State & Pure Reducer Helpers', () => {
       expect(result.jobs[0].id).toBe(2);
     });
 
-    it('filters by CRM tab "activas" excluding discarded and >21d jobs', () => {
+    it('filters by CRM tab "activas" excluding discarded, applied, and >21d jobs', () => {
       const filters: WorkspaceFilters = {
         ...DEFAULT_WORKSPACE_FILTERS,
         crmTab: 'activas',
@@ -279,7 +279,7 @@ describe('Workspace State & Pure Reducer Helpers', () => {
       const ids = result.jobs.map((j) => j.id);
       expect(ids).toContain(1);
       expect(ids).toContain(2);
-      expect(ids).toContain(3);
+      expect(ids).not.toContain(3); // applied by user
       expect(ids).not.toContain(6); // >21 days old (2026-10-10)
       expect(ids).not.toContain(5); // discarded by user
       expect(ids).not.toContain(4); // discarded by AI
