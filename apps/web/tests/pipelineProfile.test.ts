@@ -17,7 +17,7 @@ import { validateProfileUpdatePayload } from '../src/actions/profile';
 import { JobSummary, UserProfile } from '../src/lib/domain/types';
 import { calculatePipelineCounts } from '../src/lib/supabase/queries';
 
-describe('Task 6: Pipeline Board & Profile Form Helpers', () => {
+describe('Pipeline Board & Profile Form Helpers', () => {
   const sampleJobs: JobSummary[] = [
     {
       id: 1,

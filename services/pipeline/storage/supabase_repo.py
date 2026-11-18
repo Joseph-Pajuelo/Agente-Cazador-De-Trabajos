@@ -1,3 +1,7 @@
+"""
+Repositorio PostgreSQL en la nube vía Supabase HTTPS (PostgREST API).
+Garantiza compatibilidad IPv4/IPv6 desde GitHub Actions y aislamiento multiusuario con RLS.
+"""
 import os
 import logging
 from datetime import datetime, timedelta, timezone
@@ -12,8 +16,7 @@ logger = logging.getLogger(__name__)
 
 class SupabaseRepository(JobRepository):
     """
-    Repositorio PostgreSQL en la nube vía Supabase HTTPS (PostgREST API).
-    Garantiza compatibilidad IPv4/IPv6 y persistencia multi-usuario mediante RLS.
+    Implementación de JobRepository conectada a Supabase Cloud mediante `service_role`.
     """
 
     def __init__(
@@ -30,12 +33,17 @@ class SupabaseRepository(JobRepository):
                 service_role_key or os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or ""
             ).strip()
             if not self.url or not self.service_role_key:
-                raise ValueError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required to initialize SupabaseRepository")
+                raise ValueError(
+                    "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required to initialize SupabaseRepository"
+                )
             from supabase import create_client
             self.client = create_client(self.url, self.service_role_key)
 
+    # ========================================================================
+    # 1. Deduplicación de URLs y Almacenamiento Enriquecido de Vacantes
+    # ========================================================================
     def get_known_urls(self) -> Set[str]:
-        """Obtiene todas las URLs registradas en job_listings (paginado más allá del límite de 1000 filas)."""
+        """Obtiene todas las URLs registradas en job_listings paginando más allá del límite de 1,000 filas."""
         urls: Set[str] = set()
         page_size = 1000
         offset = 0
@@ -59,7 +67,8 @@ class SupabaseRepository(JobRepository):
 
     def insert_listing(self, listing: JobListing) -> Tuple[Optional[int], bool]:
         """
-        Inserta o actualiza una vacante con enriquecimiento precomputado.
+        Inserta una vacante nueva con metadatos de Lima y empleador precomputados.
+        Si el hash SHA-256 ya existe, conserva su estado actual sin reiniciarla a PENDING_EVALUATION.
         Retorna (id, is_new).
         """
         if not listing.deduplication_hash:
@@ -98,7 +107,7 @@ class SupabaseRepository(JobRepository):
             "status": "PENDING_EVALUATION",
         }
 
-        # Verificar existencia previa por deduplication_hash
+        # Verificar existencia previa por deduplication_hash para no sobreescribir el status EVALUATED
         existing = (
             self.client.table("job_listings")
             .select("id")
@@ -108,10 +117,17 @@ class SupabaseRepository(JobRepository):
         if existing.data and len(existing.data) > 0:
             return existing.data[0]["id"], False
 
-        resp = self.client.table("job_listings").upsert(payload, on_conflict="deduplication_hash").execute()
+        resp = (
+            self.client.table("job_listings")
+            .upsert(payload, on_conflict="deduplication_hash")
+            .execute()
+        )
         row_id = resp.data[0]["id"] if (resp.data and len(resp.data) > 0) else None
         return row_id, True
 
+    # ========================================================================
+    # 2. Gestión de Evaluaciones de IA / Heurística
+    # ========================================================================
     def insert_evaluation(
         self,
         listing_id: int,
@@ -119,7 +135,8 @@ class SupabaseRepository(JobRepository):
         profile_id: Optional[str] = None,
     ) -> None:
         """
-        Inserta evaluación omitiendo pitch_recommendation y asociando a profile_id (None para catálogo compartido).
+        Inserta o actualiza la evaluación asociándola a `profile_id` (None para el catálogo compartido)
+        y actualiza el estado de la vacante a EVALUATED.
         """
         eval_payload = {
             "listing_id": listing_id,
@@ -137,11 +154,13 @@ class SupabaseRepository(JobRepository):
             "engine": evaluation.engine or "heuristic",
         }
 
-        self.client.table("job_evaluations").upsert(eval_payload, on_conflict="listing_id,profile_id").execute()
+        self.client.table("job_evaluations").upsert(
+            eval_payload, on_conflict="listing_id,profile_id"
+        ).execute()
         self.client.table("job_listings").update({"status": "EVALUATED"}).eq("id", listing_id).execute()
 
     def get_pending_listings(self, limit: int = 200) -> List[Tuple[int, JobListing]]:
-        """Recupera vacantes pendientes de evaluación."""
+        """Recupera las vacantes pendientes de evaluación más recientes."""
         resp = (
             self.client.table("job_listings")
             .select("*")
@@ -156,15 +175,24 @@ class SupabaseRepository(JobRepository):
             modality_val = row.get("modality")
             listing = JobListing(
                 id=str(row["id"]),
-                source=JobSource(source_val) if source_val in JobSource._value2member_map_ else JobSource.PRACTICAS_PE,
+                source=(
+                    JobSource(source_val)
+                    if source_val in JobSource._value2member_map_
+                    else JobSource.PRACTICAS_PE
+                ),
                 title=row["title"],
                 company=row["company"],
                 location=row.get("location") or "Lima, Perú",
-                modality=Modality(modality_val) if modality_val in Modality._value2member_map_ else Modality.DESCONOCIDO,
+                modality=(
+                    Modality(modality_val)
+                    if modality_val in Modality._value2member_map_
+                    else Modality.DESCONOCIDO
+                ),
                 url=row["url"],
                 salary=row.get("salary"),
                 raw_description=row["raw_description"],
                 published_at=row.get("published_at"),
+                company_logo_url=row.get("company_logo_url"),
                 deduplication_hash=row["deduplication_hash"],
             )
             results.append((row["id"], listing))
@@ -176,7 +204,7 @@ class SupabaseRepository(JobRepository):
         self.client.table("job_listings").update({"status": "PENDING_EVALUATION"}).neq("id", 0).execute()
 
     def get_all_evaluated_jobs(self) -> List[Dict[str, Any]]:
-        """Recupera todas las vacantes evaluadas del catálogo base (profile_id IS NULL) con sus datos completos."""
+        """Recupera todas las vacantes evaluadas del catálogo base (profile_id IS NULL) ordenadas por puntaje."""
         resp = (
             self.client.table("job_evaluations")
             .select("*, job_listings(*)")
@@ -205,9 +233,6 @@ class SupabaseRepository(JobRepository):
                 "resolved_via_agency": listing.get("resolved_via_agency", False),
                 "agency_clue": listing.get("agency_clue", ""),
                 "sector_hint": listing.get("sector_hint"),
-                "application_status": "to_apply",
-                "applied_at": None,
-                "user_notes": "",
                 "is_pre_professional": row.get("is_pre_professional"),
                 "is_unrealistic_or_smoke": row.get("is_unrealistic_or_smoke"),
                 "technical_match_score": row.get("technical_match_score"),
@@ -217,7 +242,6 @@ class SupabaseRepository(JobRepository):
                 "matching_skills": row.get("matching_skills") or [],
                 "missing_skills": row.get("missing_skills") or [],
                 "verdict_summary": row.get("verdict_summary", ""),
-                "pitch_recommendation": "",
                 "evaluated_at": row.get("evaluated_at"),
                 "reasoning_chain": row.get("reasoning_chain"),
                 "engine": row.get("engine", "heuristic"),
@@ -225,8 +249,14 @@ class SupabaseRepository(JobRepository):
             flat_results.append(combined)
         return flat_results
 
+    # ========================================================================
+    # 3. Mantenimiento y Retención de Datos (Purga Segura > 21 Días)
+    # ========================================================================
     def purge_expired_listings(self, max_age_days: int = 21) -> int:
-        """Elimina vacantes mayores a max_age_days sin tocar las que tienen seguimiento en user_job_states."""
+        """
+        Elimina vacantes con antigüedad mayor a `max_age_days` preservando
+        intactas aquellas que cualquier usuario haya guardado en `user_job_states`.
+        """
         cutoff_date = (
             datetime.now(timezone(timedelta(hours=-5))) - timedelta(days=max_age_days)
         ).strftime("%Y-%m-%d")
@@ -267,5 +297,5 @@ class SupabaseRepository(JobRepository):
             return 0
 
     def checkpoint(self) -> None:
-        """No-op en Supabase: las escrituras HTTP se confirman de inmediato."""
+        """No-op en Supabase: las peticiones HTTP PostgREST son atómicas."""
         pass

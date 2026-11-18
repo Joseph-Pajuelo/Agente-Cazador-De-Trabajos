@@ -1,5 +1,12 @@
 'use server';
 
+/**
+ * Server Actions de consulta bajo demanda para vacantes:
+ * 1. `getJobDetail`: carga diferida (lazy loading) de `raw_description` y `reasoning_chain`
+ *    cuando el usuario abre el drawer de una vacante, manteniendo ligero el payload inicial SSR.
+ * 2. `searchHistoricalJobs`: búsqueda y paginación en PostgreSQL sobre todo el catálogo histórico
+ *    usando Full-Text Search en español (`search_tsv`) y columnas normalizadas de Lima.
+ */
 import { createClient, isSupabaseConfigured } from '../lib/supabase/server';
 import {
   buildHistoricalSearchFilters,
@@ -17,6 +24,9 @@ export interface HistoricalSearchResult {
   note: string | null;
 }
 
+// ============================================================================
+// 1. Carga Diferida (Lazy Detail) para el Drawer de Vacante
+// ============================================================================
 export async function getJobDetail(
   listingId: number
 ): Promise<{
@@ -67,16 +77,9 @@ export async function getJobDetail(
   }
 }
 
-export async function getJobDescription(
-  listingId: number
-): Promise<{ rawDescription: string | null; error?: string }> {
-  const detail = await getJobDetail(listingId);
-  return {
-    rawDescription: detail.rawDescription,
-    error: detail.error,
-  };
-}
-
+// ============================================================================
+// 2. Búsqueda y Paginación sobre el Catálogo Histórico Completo
+// ============================================================================
 export async function searchHistoricalJobs(
   params: HistoricalSearchParams
 ): Promise<HistoricalSearchResult> {
@@ -97,7 +100,7 @@ export async function searchHistoricalJobs(
   try {
     const supabase = await createClient();
 
-    // Check optional authenticated user for CRM state join
+    // Resolver usuario autenticado opcional para cruzar con sus estados en user_job_states
     let userId: string | null = null;
     try {
       const {
@@ -119,21 +122,18 @@ export async function searchHistoricalJobs(
     ).range(offset, offset + limit);
 
     if (error) {
+      console.error('searchHistoricalJobs query error:', error);
       queryErrorMessage = error.message;
-    } else {
-      const rows = (rawRows as Record<string, unknown>[]) || [];
-      for (let i = 0; i < rows.length; i++) {
-        if (
-          filters.roleLevels.length === 0 ||
-          filters.roleLevels.includes(String(rows[i].role_level ?? 'unknown'))
-        ) {
-          collected.push({ row: rows[i], sqlIndex: offset + i });
-        }
+    } else if (rawRows && rawRows.length > 0) {
+      for (let i = 0; i < rawRows.length; i++) {
+        collected.push({
+          row: rawRows[i] as Record<string, unknown>,
+          sqlIndex: offset + i,
+        });
       }
     }
 
-    if (queryErrorMessage) {
-      console.error('searchHistoricalJobs query error:', queryErrorMessage);
+    if (queryErrorMessage && collected.length === 0) {
       return {
         jobs: [],
         hasMore: false,
@@ -144,16 +144,14 @@ export async function searchHistoricalJobs(
     }
 
     const hasMore = collected.length > limit;
-    const finalItems = hasMore ? collected.slice(0, limit) : collected;
-    const finalRows = finalItems.map((item) => item.row);
-
-    // Compute exact nextOffset: lastRowSqlIndex + 1 to eliminate overlap / duplicates
+    const pageEntries = collected.slice(0, limit);
     const nextOffset =
-      hasMore && finalItems.length > 0
-        ? finalItems[finalItems.length - 1].sqlIndex + 1
+      hasMore && pageEntries.length > 0
+        ? pageEntries[pageEntries.length - 1].sqlIndex + 1
         : undefined;
+    const pageRows = pageEntries.map((e) => e.row);
 
-    // Join authenticated user CRM states if user is signed in
+    // Enriquecer con estados CRM personales si el usuario tiene sesión activa
     const userStateMap = new Map<
       number,
       {
@@ -164,34 +162,38 @@ export async function searchHistoricalJobs(
       }
     >();
 
-    if (userId && finalRows.length > 0) {
-      const listingIds = finalRows.map((r: Record<string, unknown>) => Number(r.id));
-      const { data: userStates } = await supabase
-        .from('user_job_states')
-        .select('listing_id, status, applied_at, updated_at, notes')
-        .eq('user_id', userId)
-        .in('listing_id', listingIds);
+    if (userId && pageRows.length > 0) {
+      const pageIds = pageRows.map((r) => Number(r.id)).filter(Boolean);
+      if (pageIds.length > 0) {
+        const { data: stateRows } = await supabase
+          .from('user_job_states')
+          .select('listing_id, status, applied_at, updated_at, notes')
+          .eq('user_id', userId)
+          .in('listing_id', pageIds);
 
-      if (userStates) {
-        for (const s of userStates) {
-          userStateMap.set(Number(s.listing_id), {
-            status: s.status as CrmStatus,
-            applied_at: s.applied_at,
-            updated_at: s.updated_at,
-            notes: s.notes,
-          });
+        if (stateRows) {
+          for (const s of stateRows) {
+            userStateMap.set(Number(s.listing_id), {
+              status: s.status as CrmStatus,
+              applied_at: s.applied_at,
+              updated_at: s.updated_at,
+              notes: s.notes,
+            });
+          }
         }
       }
     }
 
-    const jobs: JobSummary[] = finalRows.map((row: Record<string, unknown>) => {
+    const jobs = pageRows.map((row) => {
       const state = userStateMap.get(Number(row.id)) || null;
       return mapRowToJobSummary(row, state);
     });
 
     let note: string | null = null;
-    if (filters.didYouMean) {
-      note = `Mostrando resultados para "${filters.didYouMean}"`;
+    if (filters.brandKey) {
+      note = `Filtrando vacantes vinculadas a la marca "${filters.brandKey.toUpperCase()}"`;
+    } else if (filters.sectorHint) {
+      note = `Filtrando vacantes del sector "${filters.sectorHint}"`;
     }
 
     return {
@@ -208,7 +210,7 @@ export async function searchHistoricalJobs(
       hasMore: false,
       nextOffset: undefined,
       didYouMean: filters.didYouMean,
-      note: 'QUERY_EXECUTION_FAILED',
+      note: 'SEARCH_ERROR',
     };
   }
 }

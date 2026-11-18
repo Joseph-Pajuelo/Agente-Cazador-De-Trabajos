@@ -33,7 +33,7 @@ vi.mock('@/lib/supabase/client', () => ({
   }),
 }));
 
-describe('Task 6: Unified AppShell, FilterSidebar & JobCard UI Components', () => {
+describe('Radar Layout: AppShell, FilterSidebar & JobCard UI Components', () => {
   const sampleJob: JobSummary = {
     id: 101,
     deduplication_hash: 'hash-cvmatcher-101',
@@ -101,7 +101,7 @@ describe('Task 6: Unified AppShell, FilterSidebar & JobCard UI Components', () =
           job={sampleJob}
           isSelected={true}
           onSelect={() => {}}
-          onToggleFavorite={() => {}}
+          onQuickCrmChange={() => {}}
         />
       );
 

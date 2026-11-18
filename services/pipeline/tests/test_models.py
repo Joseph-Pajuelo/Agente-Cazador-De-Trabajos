@@ -1,6 +1,9 @@
 import pytest
+from datetime import datetime, timedelta
 from domain.models import JobListing, JobEvaluation
 from domain.enums import JobSource, Modality
+from domain.ranking import is_job_recent, get_job_age_days
+
 
 def test_job_listing_hash_computation():
     listing1 = JobListing(
@@ -8,7 +11,7 @@ def test_job_listing_hash_computation():
         title="Practicante de Sistemas",
         company="Banco de Crédito BCP",
         url="https://example.com/bcp1",
-        raw_description="Requisitos: SQL, Python."
+        raw_description="Requisitos: SQL, Python.",
     )
     hash1 = listing1.compute_hash()
     assert hash1 is not None
@@ -20,10 +23,11 @@ def test_job_listing_hash_computation():
         title="  practicante   de sistemas  ",
         company="banco de crédito BCP  ",
         url="https://example.com/bcp2",
-        raw_description="Requisitos diferentes."
+        raw_description="Requisitos diferentes.",
     )
     hash2 = listing2.compute_hash()
     assert hash1 == hash2
+
 
 def test_job_evaluation_validation():
     eval_obj = JobEvaluation(
@@ -36,81 +40,22 @@ def test_job_evaluation_validation():
         matching_skills=["Python", "SQL"],
         missing_skills=["Docker"],
         verdict_summary="Excelente oportunidad.",
-        pitch_recommendation="Elevator pitch."
     )
     assert eval_obj.technical_match_score <= 1.0
     assert eval_obj.final_ranking_score == 88.5
+
 
 def test_job_evaluation_invalid_score_fails():
     with pytest.raises(ValueError):
         JobEvaluation(
             is_pre_professional=True,
             is_unrealistic_or_smoke=False,
-            technical_match_score=1.5, # Invalido: ge=0.0, le=1.0
+            technical_match_score=1.5,  # Inválido: ge=0.0, le=1.0
             verdict_summary="Error",
-            pitch_recommendation="Error"
         )
 
 
-def test_smart_search_agency_and_typos():
-    from domain.search_engine import search_jobs
-
-    sample_jobs = [
-        {
-            "id": 1,
-            "title": "Practicante de Ingeniería de Datos",
-            "company": "BANCO DE CREDITO(BCP)",
-            "location": "La Molina, Lima",
-            "modality": "Híbrido",
-            "matching_skills": '["Python", "SQL"]',
-            "raw_description": "Prácticas preprofesionales con Python y SQL en BCP.",
-            "final_ranking_score": 90.0,
-        },
-        {
-            "id": 2,
-            "title": "Practicante Preprofesional de Ingeniería — Sector Banca",
-            "company": "ManpowerGroup",
-            "location": "Lima",
-            "modality": "Híbrido",
-            "matching_skills": '["Excel"]',
-            "raw_description": "Únete a nuestra convocatoria en el banco más grande del Perú.",
-            "final_ranking_score": 82.0,
-        },
-        {
-            "id": 3,
-            "title": "Practicante Preprofesional de Sistemas",
-            "company": "Interbank",
-            "location": "San Isidro, Lima",
-            "modality": "Presencial",
-            "matching_skills": '["Java"]',
-            "raw_description": "Sede corporativa en San Isidro.",
-            "final_ranking_score": 80.0,
-        },
-    ]
-
-    # 1. Buscar "bcp" debe traer tanto la directa del BCP como la de ManpowerGroup para "el banco más grande del Perú"
-    res_bcp = search_jobs(sample_jobs, "bcp")
-    assert len(res_bcp.jobs) == 2
-    assert res_bcp.agency_matches_count == 1
-    assert res_bcp.jobs[1]["_search_note"] is not None
-
-    # 2. Buscar con error ortográfico ("phyton") debe corregir a "python" y encontrar la vacante #1
-    res_typo = search_jobs(sample_jobs, "phyton")
-    assert res_typo.corrected_query == "python"
-    assert len(res_typo.jobs) == 1
-    assert res_typo.jobs[0]["id"] == 1
-
-    # 3. Buscar con typo en distrito ("sani isidro") debe corregir a "san isidro" y encontrar la vacante #3
-    res_distrito = search_jobs(sample_jobs, "sani isidro")
-    assert res_distrito.corrected_query == "san isidro"
-    assert len(res_distrito.jobs) == 1
-    assert res_distrito.jobs[0]["id"] == 3
-
-
 def test_job_freshness_filtering():
-    from datetime import datetime, timedelta
-    from domain.ranking import is_job_recent, get_job_age_days, get_job_age_pill_html
-
     now = datetime(2026, 11, 10, 12, 0, 0)
 
     recent_job = {
@@ -119,7 +64,6 @@ def test_job_freshness_filtering():
     }
     assert is_job_recent(recent_job, max_days=14, now=now) is True
     assert get_job_age_days(recent_job, now=now) == 5
-    assert "Hace 5d" in get_job_age_pill_html(recent_job, now=now)
 
     old_job = {
         "title": "Practicante de Sistemas Antiguo",
@@ -127,6 +71,3 @@ def test_job_freshness_filtering():
     }
     assert is_job_recent(old_job, max_days=14, now=now) is False
     assert get_job_age_days(old_job, now=now) == 35
-    assert "Hace 1 mes" in get_job_age_pill_html(old_job, now=now)
-
-

@@ -29,7 +29,6 @@ import {
   CrmStatus,
   CRM_STATUS_META,
   SOURCE_LABELS,
-  ReasoningChain,
 } from '@/lib/domain/types';
 import { getJobAgePill, isJobNewToday } from '@/lib/domain/ranking';
 import { collectDetectedSkills } from '@/lib/domain/jobNormalization';
@@ -40,7 +39,6 @@ import { CompanyMonogram } from './CompanyMonogram';
 export interface JobDetailDrawerProps {
   job: JobSummary | null;
   rawDescription?: string | null;
-  reasoningChain?: ReasoningChain | null;
   isLoadingDetail?: boolean;
   onClose: () => void;
   onPrevJob?: () => void;

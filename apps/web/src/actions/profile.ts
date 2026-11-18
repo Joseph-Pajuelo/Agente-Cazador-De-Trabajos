@@ -1,10 +1,17 @@
 'use server';
 
+/**
+ * Server Actions para gestión del Perfil Profesional (`public.profiles`).
+ * Incluye defensa explícita contra escalación de privilegios (`is_admin`).
+ */
 import { createClient, isSupabaseConfigured } from '../lib/supabase/server';
 import { profileUpdateSchema, type ProfileUpdateInput } from './schemas';
 
 export type { ProfileUpdateInput };
 
+// ============================================================================
+// 1. Validación de Seguridad y Estructura del Payload
+// ============================================================================
 export async function validateProfileUpdatePayload(payload: unknown): Promise<{
   ok: boolean;
   data?: ProfileUpdateInput;
@@ -14,6 +21,7 @@ export async function validateProfileUpdatePayload(payload: unknown): Promise<{
     return { ok: false, error: 'INVALID_PAYLOAD' };
   }
 
+  // Bloqueo explícito de escalación de privilegios antes de validar con Zod
   const raw = payload as Record<string, unknown>;
   if ('is_admin' in raw || 'isAdmin' in raw) {
     return { ok: false, error: 'FORBIDDEN_FIELD' };
@@ -27,6 +35,9 @@ export async function validateProfileUpdatePayload(payload: unknown): Promise<{
   return { ok: true, data: parsed.data };
 }
 
+// ============================================================================
+// 2. Actualización Autenticada en Supabase (RLS id = auth.uid())
+// ============================================================================
 export async function updateProfile(
   input: ProfileUpdateInput
 ): Promise<{ ok: boolean; error?: string }> {
@@ -59,20 +70,13 @@ export async function updateProfile(
     if (d.headline !== undefined) updateData.headline = d.headline.trim();
     if (d.university !== undefined) updateData.university = d.university.trim();
     if (d.current_cycle !== undefined) updateData.current_cycle = d.current_cycle.trim();
-    else if (d.cycle_label !== undefined) updateData.current_cycle = d.cycle_label.trim();
-
     if (d.preferred_districts !== undefined) updateData.preferred_districts = d.preferred_districts;
-    else if (d.target_districts !== undefined) updateData.preferred_districts = d.target_districts;
-
     if (d.excluded_districts !== undefined) updateData.excluded_districts = d.excluded_districts;
-
     if (d.modality_priority !== undefined) updateData.modality_priority = d.modality_priority;
     if (d.target_areas !== undefined) updateData.target_areas = d.target_areas;
-
     if (d.technical_skills !== undefined) updateData.technical_skills = d.technical_skills;
-    else if (d.skills_json !== undefined) updateData.technical_skills = d.skills_json;
 
-    // Explicitly guarantee is_admin is NEVER included
+    // Garantía adicional: jamás enviar `is_admin` en la sentencia UPDATE
     delete updateData.is_admin;
     delete updateData.isAdmin;
 
@@ -92,5 +96,3 @@ export async function updateProfile(
     return { ok: false, error: 'AUTH_REQUIRED' };
   }
 }
-
-export const updateUserProfile = updateProfile;

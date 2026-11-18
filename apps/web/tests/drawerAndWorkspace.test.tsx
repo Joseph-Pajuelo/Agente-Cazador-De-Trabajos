@@ -3,7 +3,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { JobDetailDrawer } from '../src/components/jobs/JobDetailDrawer';
 import { JobsWorkspace } from '../src/components/jobs/JobsWorkspace';
-import { JobSummary, ReasoningChain } from '../src/lib/domain/types';
+import { JobSummary } from '../src/lib/domain/types';
 import {
   DEFAULT_WORKSPACE_FILTERS,
 } from '../src/lib/jobs/workspaceState';
@@ -57,15 +57,7 @@ vi.mock('@/actions/crm', () => ({
   upsertJobState: vi.fn().mockResolvedValue({ ok: true, appliedAt: null }),
 }));
 
-describe('Task 7: JobDetailDrawer & Rewired JobsWorkspace', () => {
-  const sampleReasoningChain: ReasoningChain = {
-    academic_eligibility: 'Estudiante universitario de últimos ciclos en Ingeniería de Software',
-    experience_requirements: 'Deseable prácticas previas o proyectos personales demostrables',
-    tech_stack_overlap: 'Excelente dominio de React, Next.js, TypeScript y Tailwind CSS',
-    gaps_and_risks: 'Falta certificación formal en infraestructura cloud AWS',
-    score_rationale: 'Alta afinidad técnica y alineamiento con modalidad híbrida',
-  };
-
+describe('JobDetailDrawer & JobsWorkspace Integration', () => {
   const sampleJob: JobSummary = {
     id: 201,
     deduplication_hash: 'hash-cvmatcher-201',
@@ -130,7 +122,6 @@ describe('Task 7: JobDetailDrawer & Rewired JobsWorkspace', () => {
         <JobDetailDrawer
           job={sampleJob}
           rawDescription="Descripción de prueba completa"
-          reasoningChain={sampleReasoningChain}
           isLoadingDetail={false}
           onClose={() => {}}
           onStatusChange={() => {}}
@@ -158,7 +149,6 @@ describe('Task 7: JobDetailDrawer & Rewired JobsWorkspace', () => {
         <JobDetailDrawer
           job={sampleJob}
           rawDescription="Descripción de prueba completa para practicante de frontend."
-          reasoningChain={sampleReasoningChain}
           isLoadingDetail={false}
           onClose={() => {}}
           onStatusChange={() => {}}

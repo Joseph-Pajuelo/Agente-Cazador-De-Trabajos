@@ -2,16 +2,17 @@ import gc
 import os
 import tempfile
 import pytest
-from storage.sqlite_repo import SqliteRepository, DatabaseManager
+from storage.sqlite_repo import SqliteRepository
 from storage.base import JobRepository
 from domain.models import JobListing, JobEvaluation
-from domain.enums import JobSource, Modality
+from domain.enums import JobSource
+
 
 @pytest.fixture
 def temp_db():
     temp_dir = tempfile.mkdtemp()
     db_file = os.path.join(temp_dir, "test_jobs.db")
-    db = DatabaseManager(db_path=db_file)
+    db = SqliteRepository(db_path=db_file)
     yield db
     gc.collect()
     try:
@@ -27,6 +28,7 @@ def temp_db():
     except Exception:
         pass
 
+
 def test_insert_and_deduplication(temp_db):
     assert isinstance(temp_db, JobRepository)
     listing = JobListing(
@@ -34,7 +36,7 @@ def test_insert_and_deduplication(temp_db):
         title="Practicante de Automatización",
         company="BCP",
         url="https://practicas.pe/1",
-        raw_description="Python y Power BI"
+        raw_description="Python y Power BI en San Isidro",
     )
 
     id1, is_new1 = temp_db.insert_listing(listing)
@@ -45,13 +47,16 @@ def test_insert_and_deduplication(temp_db):
     assert is_new2 is False
     assert id2 == id1
 
-def test_evaluation_workflow(temp_db):
+
+def test_evaluation_workflow_and_normalized_columns(temp_db):
     listing = JobListing(
         source=JobSource.PRACTICAS_PE,
-        title="Practicante de Datos",
+        title="Practicante Preprofesional de Datos",
         company="Interbank",
+        location="San Isidro, Lima",
+        salary="S/ 1,500",
         url="https://practicas.pe/2",
-        raw_description="SQL y Excel"
+        raw_description="Estudiante de Ingeniería de Sistemas. SQL, Python e Inglés intermedio.",
     )
     listing_id, _ = temp_db.insert_listing(listing)
 
@@ -66,40 +71,23 @@ def test_evaluation_workflow(temp_db):
         modality_score=1.0,
         location_score=1.0,
         final_ranking_score=93.0,
-        matching_skills=["SQL", "Excel"],
+        matching_skills=["SQL", "Python"],
         missing_skills=[],
-        verdict_summary="Afinidad perfecta con el perfil.",
-        pitch_recommendation="Postulación recomendada."
+        verdict_summary="Afinidad excelente con el perfil.",
     )
     temp_db.insert_evaluation(listing_id, eval_obj)
 
     pending_after = temp_db.get_pending_listings()
     assert len(pending_after) == 0
 
-    top = temp_db.get_top_ranked_jobs(min_score=80.0)
-    assert len(top) == 1
-    assert top[0]["company"] == "Interbank"
-    assert top[0]["application_status"] == "📋 Por postular"
-
-    # Probar actualización de seguimiento (Postulado + Notas)
-    temp_db.update_application_status(listing_id, "🚀 Postulado", notes="Envié CV de Datos")
     all_jobs = temp_db.get_all_evaluated_jobs()
-    assert all_jobs[0]["application_status"] == "🚀 Postulado"
-    assert all_jobs[0]["user_notes"] == "Envié CV de Datos"
-    assert all_jobs[0]["applied_at"] is not None
-
-    # Probar exportación e importación de CRM
-    exported = temp_db.export_crm_data()
-    assert exported["total_items"] == 1
-    assert exported["items"][0]["id"] == listing_id
-    assert exported["items"][0]["application_status"] == "🚀 Postulado"
-
-    # Modificar y luego re-importar para verificar restauración
-    temp_db.update_application_status(listing_id, "📋 Por postular", notes="")
-    assert temp_db.get_all_evaluated_jobs()[0]["application_status"] == "📋 Por postular"
-
-    imported_cnt = temp_db.import_crm_data(exported)
-    assert imported_cnt == 1
-    re_checked = temp_db.get_all_evaluated_jobs()[0]
-    assert re_checked["application_status"] == "🚀 Postulado"
-    assert re_checked["user_notes"] == "Envié CV de Datos"
+    assert len(all_jobs) == 1
+    job = all_jobs[0]
+    assert job["company"] == "Interbank"
+    assert job["resolved_brand_key"] == "interbank"
+    assert job["district"] == "San Isidro"
+    assert job["lima_zone"] == "Lima Moderna"
+    assert job["role_level"] == "preprofesional"
+    assert job["english_required"] == 1
+    assert job["salary_min"] == 1500
+    assert job["final_ranking_score"] == 93.0

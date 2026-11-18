@@ -1,5 +1,9 @@
 'use server';
 
+/**
+ * Server Action para el seguimiento CRM personal por usuario (`public.user_job_states`).
+ * Soporta creación/actualización idempotente (`upsert`) y retorno a "Activas" (`status === null`).
+ */
 import { createClient, isSupabaseConfigured } from '../lib/supabase/server';
 import { CrmStatus } from '../lib/domain/types';
 import { crmStateSchema, type CrmStateInput } from './schemas';
@@ -16,6 +20,7 @@ export async function upsertJobState(input: {
   appliedAt?: string | null;
   updatedAt?: string | null;
 }> {
+  // 1. Validar entrada con Zod
   const parsed = crmStateSchema.safeParse(input);
   if (!parsed.success) {
     return { ok: false, error: 'INVALID_INPUT' };
@@ -26,6 +31,7 @@ export async function upsertJobState(input: {
   }
 
   try {
+    // 2. Verificar sesión autenticada
     const supabase = await createClient();
     const {
       data: { user },
@@ -36,6 +42,7 @@ export async function upsertJobState(input: {
       return { ok: false, error: 'AUTH_REQUIRED' };
     }
 
+    // 3. Si status es null ("Regresar a Activas"), eliminar el registro de seguimiento
     if (parsed.data.status === null) {
       const { error: deleteError } = await supabase
         .from('user_job_states')
@@ -51,7 +58,7 @@ export async function upsertJobState(input: {
       return { ok: true, appliedAt: null, updatedAt: null };
     }
 
-    // Determine applied_at timestamp
+    // 4. Preservar timestamp `applied_at` previo o asignarlo al pasar a 'applied'
     let appliedAt: string | null = null;
     const { data: existing } = await supabase
       .from('user_job_states')
@@ -66,6 +73,7 @@ export async function upsertJobState(input: {
       appliedAt = existing?.applied_at ?? null;
     }
 
+    // 5. Upsert atómico sobre la restricción única (user_id, listing_id)
     const updatedAt = new Date().toISOString();
     const { error: upsertError } = await supabase.from('user_job_states').upsert(
       {

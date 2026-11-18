@@ -1,13 +1,6 @@
-from storage.base import (
-    JobRepository,
-    normalize_listing_enrichment,
-    CRM_STATUS_MAP,
-    map_crm_status,
-)
+from storage.base import JobRepository, normalize_listing_enrichment
 
 __all__ = [
     "JobRepository",
     "normalize_listing_enrichment",
-    "CRM_STATUS_MAP",
-    "map_crm_status",
 ]

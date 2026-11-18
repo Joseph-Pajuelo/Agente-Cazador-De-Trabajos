@@ -430,7 +430,7 @@ export function JobsWorkspace({
       setCurrentDetail({
         rawDescription:
           'raw_description' in selectedJob &&
-          typeof (selectedJob as { raw_description?: unknown }).raw_description === 'string'
+            typeof (selectedJob as { raw_description?: unknown }).raw_description === 'string'
             ? (selectedJob as { raw_description?: string }).raw_description ?? null
             : null,
         reasoningChain: selectedJob.reasoning_chain ?? null,
@@ -519,8 +519,8 @@ export function JobsWorkspace({
       status === null
         ? null
         : status === 'applied'
-        ? job.applied_at || nowIso
-        : (job.applied_at ?? null);
+          ? job.applied_at || nowIso
+          : (job.applied_at ?? null);
     const optimisticUpdatedAt = status === null ? null : nowIso;
 
     const removesFromCurrentTab =
@@ -626,13 +626,13 @@ export function JobsWorkspace({
     setHistoricalJobs((prev) =>
       prev.length > 0
         ? applyOptimisticCrmTransition(
-            prev,
-            targetId,
-            status,
-            undefined,
-            optimisticAppliedAt,
-            optimisticUpdatedAt
-          )
+          prev,
+          targetId,
+          status,
+          undefined,
+          optimisticAppliedAt,
+          optimisticUpdatedAt
+        )
         : prev
     );
 
@@ -692,13 +692,13 @@ export function JobsWorkspace({
             setHistoricalJobs((prev) =>
               prev.length > 0
                 ? applyOptimisticCrmTransition(
-                    prev,
-                    targetId,
-                    status,
-                    undefined,
-                    finalAppliedAt,
-                    finalUpdatedAt
-                  )
+                  prev,
+                  targetId,
+                  status,
+                  undefined,
+                  finalAppliedAt,
+                  finalUpdatedAt
+                )
                 : prev
             );
           }
@@ -1128,21 +1128,19 @@ export function JobsWorkspace({
                       key={tab.key}
                       type="button"
                       onClick={() => setFilters((prev) => ({ ...prev, crmTab: tab.key }))}
-                      className={`interactive-pill inline-flex items-center gap-2 whitespace-nowrap rounded-xl px-4 py-2 text-sm font-bold transition-all cursor-pointer ${
-                        isActive
+                      className={`interactive-pill inline-flex items-center gap-2 whitespace-nowrap rounded-xl px-4 py-2 text-sm font-bold transition-all cursor-pointer ${isActive
                           ? 'bg-[#2563EB] text-white shadow-sm'
                           : 'bg-white text-slate-600 border border-slate-200 hover:bg-blue-50/60 hover:text-[#2563EB] hover:border-blue-200'
-                      }`}
+                        }`}
                       aria-pressed={isActive}
                     >
                       <span>{tab.label}</span>
                       <span
                         data-bumped={bumpedTabKey === tab.key ? 'true' : undefined}
-                        className={`crm-tab-badge rounded-full px-2 py-0.5 text-xs font-extrabold ${
-                          isActive
+                        className={`crm-tab-badge rounded-full px-2 py-0.5 text-xs font-extrabold ${isActive
                             ? 'bg-white/20 text-white'
                             : 'bg-slate-100 text-slate-700'
-                        }`}
+                          }`}
                       >
                         {tabCount}
                       </span>
@@ -1171,21 +1169,19 @@ export function JobsWorkspace({
                       }))
                     }
                     aria-pressed={filters.maxAgeDays === 0}
-                    className={`interactive-pill inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold border cursor-pointer ${
-                      filters.maxAgeDays === 0
+                    className={`interactive-pill inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold border cursor-pointer ${filters.maxAgeDays === 0
                         ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
                         : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100/80'
-                    }`}
+                      }`}
                     title="Filtrar solo vacantes publicadas o descubiertas hoy"
                   >
                     <Sparkles className="h-3.5 w-3.5" />
                     <span>Nuevas de hoy</span>
                     <span
-                      className={`rounded-full px-1.5 py-0.5 text-[11px] font-extrabold leading-none ${
-                        filters.maxAgeDays === 0
+                      className={`rounded-full px-1.5 py-0.5 text-[11px] font-extrabold leading-none ${filters.maxAgeDays === 0
                           ? 'bg-white/20 text-white'
                           : 'bg-emerald-200/70 text-emerald-950'
-                      }`}
+                        }`}
                     >
                       {newTodayCount}
                     </span>
@@ -1296,7 +1292,6 @@ export function JobsWorkspace({
       <JobDetailDrawer
         job={selectedJob}
         rawDescription={currentDetail?.rawDescription ?? null}
-        reasoningChain={currentDetail?.reasoningChain ?? null}
         isLoadingDetail={isLoadingDetail}
         onClose={handleCloseDetail}
         onPrevJob={handlePrevJob}

@@ -1,5 +1,12 @@
+/**
+ * Esquemas de validación Zod para todas las Server Actions (CRM y Perfil).
+ * Garantizan integridad de tipos y rechazan campos no autorizados (.strict()).
+ */
 import { z } from 'zod';
 
+// ============================================================================
+// 1. Esquema de Estado CRM por Vacante (public.user_job_states)
+// ============================================================================
 export const crmStateSchema = z.object({
   listingId: z.number().int().positive(),
   status: z
@@ -10,21 +17,20 @@ export const crmStateSchema = z.object({
 
 export type CrmStateInput = z.infer<typeof crmStateSchema>;
 
+// ============================================================================
+// 2. Esquema de Actualización de Perfil Profesional (public.profiles)
+// ============================================================================
 export const profileUpdateSchema = z
   .object({
     full_name: z.string().min(1).max(100).optional(),
     headline: z.string().max(150).optional(),
     university: z.string().max(100).optional(),
     current_cycle: z.string().max(50).optional(),
-    cycle_label: z.string().max(50).optional(),
     preferred_districts: z.array(z.string().max(50)).max(50).optional(),
-    target_districts: z.array(z.string().max(50)).max(50).optional(),
     excluded_districts: z.array(z.string().max(50)).max(50).optional(),
     modality_priority: z.array(z.string().max(50)).max(10).optional(),
     target_areas: z.array(z.string().max(50)).max(20).optional(),
     technical_skills: z.record(z.unknown()).optional(),
-    skills_json: z.record(z.unknown()).optional(),
-    min_score_pref: z.number().min(0).max(100).optional(),
   })
   .strict();
 

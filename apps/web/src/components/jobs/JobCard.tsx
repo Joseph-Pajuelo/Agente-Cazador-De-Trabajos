@@ -29,7 +29,6 @@ export interface JobCardProps {
   onQuickCrmChange?: (job: JobSummary, status: CrmStatus | null) => void;
   isPendingCrm?: boolean;
   exitingAction?: CrmStatus | 'restore' | null;
-  onToggleFavorite?: (job: JobSummary) => void;
 }
 
 const CRM_BUTTONS: { key: CrmStatus; label: string; icon: React.ElementType }[] = [
@@ -116,7 +115,6 @@ export function JobCard({
   onQuickCrmChange,
   isPendingCrm = false,
   exitingAction = null,
-  onToggleFavorite,
 }: JobCardProps) {
   const agePill = React.useMemo(() => getJobAgePill(job), [job]);
   const isNewToday = React.useMemo(() => isJobNewToday(job), [job]);
@@ -143,11 +141,7 @@ export function JobCard({
   const handleCrmClick = (status: CrmStatus) => (e: React.MouseEvent) => {
     e.stopPropagation();
     const nextStatus = job.user_status === status ? null : status;
-    if (onQuickCrmChange) {
-      onQuickCrmChange(job, nextStatus);
-    } else if (status === 'favorite' && onToggleFavorite) {
-      onToggleFavorite(job);
-    }
+    onQuickCrmChange?.(job, nextStatus);
   };
 
   const portalLabel = SOURCE_LABELS[job.source] || job.source;

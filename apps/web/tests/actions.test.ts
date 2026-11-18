@@ -14,12 +14,11 @@ import {
 } from '../src/lib/supabase/queries';
 import {
   getJobDetail,
-  getJobDescription,
   searchHistoricalJobs,
 } from '../src/actions/jobs';
 import * as supabaseServer from '../src/lib/supabase/server';
 
-describe('Task 4: Supabase Auth, Middleware, Queries & Server Actions', () => {
+describe('Supabase Auth, Middleware, Queries & Server Actions', () => {
   describe('1. crmStateSchema', () => {
     it('accepts valid CrmStatus and positive listingId with optional notes', () => {
       const validPayload = {
@@ -249,7 +248,7 @@ describe('Task 4: Supabase Auth, Middleware, Queries & Server Actions', () => {
     });
   });
 
-  describe('6. Lazy getJobDetail & getJobDescription wrapper', () => {
+  describe('6. Lazy getJobDetail action', () => {
     it('validates listingId and rejects invalid inputs', async () => {
       expect(await getJobDetail(0)).toEqual({
         rawDescription: null,
@@ -261,14 +260,6 @@ describe('Task 4: Supabase Auth, Middleware, Queries & Server Actions', () => {
         reasoningChain: null,
         error: 'INVALID_LISTING_ID',
       });
-      expect(await getJobDescription(0)).toEqual({
-        rawDescription: null,
-        error: 'INVALID_LISTING_ID',
-      });
-      expect(await getJobDescription(-5)).toEqual({
-        rawDescription: null,
-        error: 'INVALID_LISTING_ID',
-      });
     });
 
     it('returns SUPABASE_NOT_CONFIGURED gracefully when unconfigured in test environment', async () => {
@@ -276,12 +267,6 @@ describe('Task 4: Supabase Auth, Middleware, Queries & Server Actions', () => {
       expect(detail).toEqual({
         rawDescription: null,
         reasoningChain: null,
-        error: 'SUPABASE_NOT_CONFIGURED',
-      });
-
-      const desc = await getJobDescription(101);
-      expect(desc).toEqual({
-        rawDescription: null,
         error: 'SUPABASE_NOT_CONFIGURED',
       });
     });

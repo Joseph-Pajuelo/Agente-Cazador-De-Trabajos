@@ -280,7 +280,6 @@ def test_adapter_scoping_and_pipeline_off_career_filtering(monkeypatch, tmp_path
 
     summary = run_pipeline(
         limit_per_source=10,
-        generate_pdf=False,
         backend="sqlite",
     )
     assert summary["extracted"] == 3

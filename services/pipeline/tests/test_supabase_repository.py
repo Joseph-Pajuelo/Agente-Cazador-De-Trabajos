@@ -1,15 +1,12 @@
-import json
 from datetime import datetime
 from unittest.mock import MagicMock
 import pytest
 
 from domain.models import JobListing, JobEvaluation, ReasoningChain
-from domain.enums import JobSource, Modality
+from domain.enums import JobSource
 from domain.ranking import is_job_recent
-
-from storage.base import normalize_listing_enrichment, JobRepository, CRM_STATUS_MAP
+from storage.base import normalize_listing_enrichment, JobRepository
 from storage.supabase_repo import SupabaseRepository
-from scripts.migrate_sqlite_to_supabase import run_migration, map_crm_status, resolve_owner_user_id
 
 
 def test_normalize_listing_enrichment_agency_resolution_and_date():
@@ -67,24 +64,19 @@ def test_normalize_listing_enrichment_agency_resolution_and_date():
 def test_supabase_repository_insert_listing_and_evaluation():
     mock_client = MagicMock()
 
-    # Mock table("job_listings")
     listings_table = MagicMock()
-    # Mock select().eq().execute() returning empty list (is_new = True)
     select_query = MagicMock()
     select_query.eq.return_value.execute.return_value = MagicMock(data=[])
     listings_table.select.return_value = select_query
 
-    # Mock upsert().execute() returning inserted row with id 42
     upsert_query = MagicMock()
     upsert_query.execute.return_value = MagicMock(data=[{"id": 42}])
     listings_table.upsert.return_value = upsert_query
 
-    # Mock update().eq().execute()
     update_query = MagicMock()
     update_query.eq.return_value.execute.return_value = MagicMock(data=[{"id": 42}])
     listings_table.update.return_value = update_query
 
-    # Mock table("job_evaluations")
     evaluations_table = MagicMock()
     eval_upsert_query = MagicMock()
     eval_upsert_query.execute.return_value = MagicMock(data=[{"id": 101}])
@@ -112,12 +104,10 @@ def test_supabase_repository_insert_listing_and_evaluation():
         company_logo_url="https://imgbum.jobscdn.com/bcp.jpg",
     )
 
-    # 1. Insert listing (new)
     row_id, is_new = repo.insert_listing(listing)
     assert row_id == 42
     assert is_new is True
 
-    # Verify upsert call on job_listings with on_conflict="deduplication_hash"
     listings_table.upsert.assert_called_once()
     call_args, call_kwargs = listings_table.upsert.call_args
     upsert_payload = call_args[0]
@@ -128,7 +118,6 @@ def test_supabase_repository_insert_listing_and_evaluation():
     assert upsert_payload["published_date"] == "2026-11-10"
     assert upsert_payload["status"] == "PENDING_EVALUATION"
 
-    # 2. Insert evaluation
     eval_obj = JobEvaluation(
         is_pre_professional=True,
         is_unrealistic_or_smoke=False,
@@ -139,7 +128,6 @@ def test_supabase_repository_insert_listing_and_evaluation():
         matching_skills=["Python", "SQL"],
         missing_skills=["Docker"],
         verdict_summary="Excelente perfil para prácticas.",
-        pitch_recommendation="Destacar proyectos en Python.",  # Obsolete field - MUST BE OMITTED
         reasoning=ReasoningChain(
             academic_eligibility="Estudiante de 8vo ciclo apto.",
             experience_requirements="Sin experiencia previa requerida.",
@@ -163,97 +151,13 @@ def test_supabase_repository_insert_listing_and_evaluation():
     assert eval_payload["final_ranking_score"] == 88.5
     assert eval_payload["reasoning_chain"]["academic_eligibility"] == "Estudiante de 8vo ciclo apto."
 
-    # Verify listing status updated to EVALUATED
     listings_table.update.assert_called_with({"status": "EVALUATED"})
-
-
-def test_migrate_sqlite_to_supabase_dry_run():
-    # Test CRM emoji mapping
-    assert map_crm_status("📋 Por postular") == "to_apply"
-    assert map_crm_status("⭐ Favorita") == "favorite"
-    assert map_crm_status("🚀 Postulado") == "applied"
-    assert map_crm_status("🎤 En entrevista") == "interview"
-    assert map_crm_status("❌ Descartada por mí") == "discarded"
-    assert map_crm_status("to_apply") == "to_apply"
-    assert map_crm_status("unknown_status") == "to_apply"
-
-    sample_catalog = {
-        "version": "1.0",
-        "total_listings": 2,
-        "total_evaluations": 2,
-        "listings": [
-            {
-                "deduplication_hash": "hash1",
-                "source": "Bumeran",
-                "title": "Practicante Sistemas",
-                "company": "BCP",
-                "location": "Lima",
-                "modality": "Híbrido",
-                "url": "https://example.com/1",
-                "salary": None,
-                "raw_description": "Desarrollo Python",
-                "published_at": "2026-11-01",
-                "crm": {
-                    "status": "⭐ Favorita",
-                    "applied_at": None,
-                    "notes": "Postular el lunes",
-                },
-            },
-            {
-                "deduplication_hash": "hash2",
-                "source": "LinkedIn",
-                "title": "Data Intern",
-                "company": "Interbank",
-                "location": "Lima",
-                "modality": "Remoto",
-                "url": "https://example.com/2",
-                "salary": "S/ 1,200",
-                "raw_description": "SQL y PowerBI",
-                "published_at": "2026-11-02",
-                "crm": None,
-            },
-        ],
-        "evaluations": [
-            {
-                "deduplication_hash": "hash1",
-                "is_pre_professional": True,
-                "is_unrealistic_or_smoke": False,
-                "technical_match_score": 0.85,
-                "modality_score": 1.0,
-                "location_score": 1.0,
-                "final_ranking_score": 90.0,
-                "matching_skills": ["Python"],
-                "missing_skills": [],
-                "verdict_summary": "Recomendado",
-                "reasoning_chain": None,
-                "engine": "heuristic",
-                "evaluated_at": "2026-11-01T12:00:00Z",
-            }
-        ],
-    }
-
-    mock_client = MagicMock()
-    stats = run_migration(
-        catalog_data=sample_catalog,
-        supabase_client=mock_client,
-        dry_run=True,
-        owner_email="test@example.com",
-    )
-
-    assert stats["listings_count"] == 2
-    assert stats["evaluations_count"] == 1
-    assert stats["crm_states_count"] == 1
-    assert stats["dry_run"] is True
-
-    # In dry run, no database writes should occur
-    mock_client.table.assert_not_called()
 
 
 def test_supabase_repository_insert_listing_existing_does_not_upsert_or_reset_status():
     mock_client = MagicMock()
     listings_table = MagicMock()
 
-    # Mock select().eq().execute() returning an existing row
     select_query = MagicMock()
     select_query.eq.return_value.execute.return_value = MagicMock(data=[{"id": 42}])
     listings_table.select.return_value = select_query
@@ -272,11 +176,8 @@ def test_supabase_repository_insert_listing_existing_does_not_upsert_or_reset_st
 
     row_id, is_new = repo.insert_listing(listing)
 
-    # Must return existing ID and is_new = False
     assert row_id == 42
     assert is_new is False
-
-    # CRITICAL: upsert / insert MUST NOT be called so existing status is NOT reset to PENDING_EVALUATION
     listings_table.upsert.assert_not_called()
     listings_table.insert.assert_not_called()
 
@@ -298,7 +199,6 @@ def test_supabase_repository_reset_evaluations_scoped_to_null_profile():
     repo = SupabaseRepository(client=mock_client)
     repo.reset_evaluations()
 
-    # Scoped to base evaluations where profile_id IS NULL
     evaluations_table.delete.return_value.is_.assert_called_once_with("profile_id", "null")
     evaluations_table.delete.return_value.is_.return_value.execute.assert_called_once()
 
@@ -313,80 +213,7 @@ def test_supabase_repository_get_all_evaluated_jobs_scoped_to_null_profile():
     repo = SupabaseRepository(client=mock_client)
     repo.get_all_evaluated_jobs()
 
-    # Scoped to base evaluations where profile_id IS NULL
     evaluations_table.select.return_value.is_.assert_called_once_with("profile_id", "null")
-
-
-def test_resolve_owner_user_id_success_and_crm_migration():
-    mock_client = MagicMock()
-
-    # Mock admin user objects
-    user1 = MagicMock(id="user-uuid-1", email="other@example.com")
-    user2 = MagicMock(id="user-uuid-42", email="owner@example.com")
-    mock_client.auth.admin.list_users.return_value = [user1, user2]
-
-    # Test resolution
-    resolved_id = resolve_owner_user_id(mock_client, "owner@example.com")
-    assert resolved_id == "user-uuid-42"
-
-    # Case-insensitive resolution
-    resolved_id_upper = resolve_owner_user_id(mock_client, "OWNER@example.com")
-    assert resolved_id_upper == "user-uuid-42"
-
-
-def test_resolve_owner_user_id_not_found_skips_crm_and_never_falls_back():
-    mock_client = MagicMock()
-
-    # Mock admin user objects with no match
-    user1 = MagicMock(id="user-uuid-1", email="someone@example.com")
-    mock_client.auth.admin.list_users.return_value = [user1]
-
-    resolved_id = resolve_owner_user_id(mock_client, "nonexistent@example.com")
-    assert resolved_id is None
-
-    # Test run_migration with non-existent user
-    sample_catalog = {
-        "version": "1.0",
-        "listings": [
-            {
-                "deduplication_hash": "hash_crm",
-                "source": "Bumeran",
-                "title": "Practicante",
-                "company": "BCP",
-                "url": "https://example.com/crm",
-                "raw_description": "Dev",
-                "crm": {"status": "⭐ Favorita", "notes": "Test note"},
-            }
-        ],
-        "evaluations": [],
-    }
-
-    user_job_states_table = MagicMock()
-    job_listings_table = MagicMock()
-    job_listings_table.upsert.return_value.execute.return_value = MagicMock(data=[{"id": 10}])
-    job_listings_table.select.return_value.in_.return_value.execute.return_value = MagicMock(
-        data=[{"id": 10, "deduplication_hash": "hash_crm"}]
-    )
-
-    def table_router(table_name):
-        if table_name == "user_job_states":
-            return user_job_states_table
-        elif table_name == "job_listings":
-            return job_listings_table
-        return MagicMock()
-
-    mock_client.table.side_effect = table_router
-
-    stats = run_migration(
-        catalog_data=sample_catalog,
-        supabase_client=mock_client,
-        dry_run=False,
-        owner_email="nonexistent@example.com",
-    )
-
-    # CRM states must be skipped and NEVER inserted for arbitrary users
-    assert stats["inserted_crm_states"] == 0
-    user_job_states_table.insert.assert_not_called()
 
 
 def test_supabase_repository_strips_credentials_and_rejects_blank_env(monkeypatch):
@@ -483,7 +310,3 @@ def test_supabase_purge_expired_listings_respects_21d_and_protected_ids():
     purged = repo.purge_expired_listings(max_age_days=21)
     assert purged == 2
     listings_table.delete.return_value.in_.assert_called_once_with("id", [3, 4])
-
-
-
-

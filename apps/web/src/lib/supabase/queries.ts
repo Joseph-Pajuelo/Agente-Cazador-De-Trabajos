@@ -54,6 +54,9 @@ export interface HistoricalSearchFilters {
   salaryFilter: SalaryFilterKey;
 }
 
+// ============================================================================
+// 1. Proyecciones SQL Ligeras (Omiten `raw_description` para SSR Rápido)
+// ============================================================================
 export const LIGHTWEIGHT_JOB_SELECT = `
   id,
   deduplication_hash,
@@ -123,22 +126,12 @@ export const HISTORICAL_SEARCH_SELECT = `
   )
 `;
 
+// ============================================================================
+// 2. Constructor de Consultas SQL para Búsqueda Histórica y Filtros de Lima
+// ============================================================================
 /**
- * Pure evaluator to check whether an extracted row qualifies under role_level and pre-professional checks.
- */
-export function isHistoricalRowEligible(
-  row: Record<string, unknown>,
-  includeDiscardedAi: boolean
-): boolean {
-  const roleLevel = row.role_level as string | undefined;
-  if (roleLevel !== 'unknown') {
-    return true;
-  }
-  return includeDiscardedAi;
-}
-
-/**
- * Builds the PostgREST query builder for historical job searches with indexed column filters.
+ * Construye el query builder de PostgREST aplicando filtros indexados de Lima,
+ * nivel laboral, inglés, salario, modalidad y Full-Text Search en español (`search_tsv`).
  */
 export function buildHistoricalSupabaseQuery(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -263,6 +256,9 @@ export function buildHistoricalSupabaseQuery(
     .order('created_at', { ascending: false });
 }
 
+// ============================================================================
+// 3. Mapeo de Filas SQL a Entidades `JobSummary` y Normalización de Filtros
+// ============================================================================
 export function mapRowToJobSummary(
   row: Record<string, unknown>,
   userState?: {
@@ -452,6 +448,9 @@ export function buildHistoricalSearchFilters(
   };
 }
 
+// ============================================================================
+// 4. Carga Inicial SSR del Radar (`/`) con Caché de Catálogo Público + CRM Privado
+// ============================================================================
 export interface AuthUserInfo {
   id: string;
   email?: string;
@@ -632,6 +631,9 @@ export async function getInitialRadarData(
   }
 }
 
+// ============================================================================
+// 5. Consultas Privadas Autenticadas: Pipeline Kanban (`/pipeline`) y Perfil (`/profile`)
+// ============================================================================
 export async function getUserPipelineJobs(
   knownUser?: User | null
 ): Promise<JobSummary[]> {

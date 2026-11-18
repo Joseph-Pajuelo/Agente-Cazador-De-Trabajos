@@ -58,4 +58,4 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          python services/pipeline/run.py --limit 40 --no-pdf --backend supabase
+          python services/pipeline/run.py --limit 40 --backend supabase

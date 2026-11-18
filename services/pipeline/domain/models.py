@@ -4,6 +4,10 @@ from typing import List, Optional
 from pydantic import BaseModel, Field, field_validator
 from .enums import JobSource, Modality
 
+
+# ============================================================================
+# 1. Entidad de Vacante y Deduplicación Criptográfica (SHA-256)
+# ============================================================================
 class JobListing(BaseModel):
     id: Optional[str] = None
     source: JobSource
@@ -21,8 +25,8 @@ class JobListing(BaseModel):
 
     def compute_hash(self) -> str:
         """
-        Genera un hash SHA-256 único basado en la empresa y el título normalizado.
-        Evita duplicados cruzados entre diferentes plataformas.
+        Genera un hash SHA-256 único basado en la empresa y el título normalizados.
+        Evita duplicados cruzados cuando la misma vacante se publica en varios portales.
         """
         norm_company = "".join(self.company.lower().split())
         norm_title = "".join(self.title.lower().split())
@@ -37,9 +41,13 @@ class JobListing(BaseModel):
             return " ".join(v.split()).strip()
         return v
 
+
+# ============================================================================
+# 2. Cadena de Razonamiento Paso a Paso (Chain-of-Thought)
+# ============================================================================
 class ReasoningChain(BaseModel):
     """
-    Cadena de razonamiento (Chain-of-Thought) explícita y auditable.
+    Cadena de razonamiento explícita y auditable.
     Se genera ANTES de los veredictos numéricos para que el puntaje sea consecuencia del análisis.
     """
     academic_eligibility: str = Field(
@@ -64,9 +72,12 @@ class ReasoningChain(BaseModel):
     )
 
 
+# ============================================================================
+# 3. Contrato de Salida Estructurada para Gemini (LLMJobAssessment)
+# ============================================================================
 class LLMJobAssessment(BaseModel):
     """
-    Esquema de salida estructurada que se pide a Gemini.
+    Esquema JSON estricto que se solicita a Gemini.
     El orden de los campos es deliberado: primero `reasoning` (CoT), después las decisiones.
     Modalidad, ubicación y ranking final NO los decide el LLM: se calculan de forma determinista.
     """
@@ -85,57 +96,59 @@ class LLMJobAssessment(BaseModel):
     verdict_summary: str = Field(..., description="Síntesis de 2 a 3 líneas: conviene o no postular y por qué.")
 
 
+# ============================================================================
+# 4. Resultado Consolidado de Evaluación (Persistido en Base de Datos)
+# ============================================================================
 class JobEvaluation(BaseModel):
     reasoning: Optional[ReasoningChain] = Field(
         default=None,
         description="Cadena de razonamiento paso a paso que justifica la evaluación.",
     )
-    engine: str = Field(default="heuristic", description="Motor que produjo la evaluación: 'gemini-cot' o 'heuristic'.")
+    engine: str = Field(
+        default="heuristic",
+        description="Motor que produjo la evaluación: 'gemini-cot' o 'heuristic'.",
+    )
     is_pre_professional: bool = Field(
-        ..., 
-        description="True si es una práctica preprofesional válida para estudiante universitario, False si pide experiencia de titulado o senior."
+        ...,
+        description="True si es una práctica preprofesional válida para estudiante universitario, False si pide experiencia de titulado o senior.",
     )
     is_unrealistic_or_smoke: bool = Field(
         ...,
-        description="True si es oferta trampa/humo (ej. pide 2+ años de experiencia o no remunera legalmente)."
+        description="True si es oferta trampa/humo (ej. pide 2+ años de experiencia o no remunera legalmente).",
     )
     technical_match_score: float = Field(
-        ..., 
-        ge=0.0, 
-        le=1.0, 
-        description="Afinidad técnica con el perfil del estudiante (0.0 a 1.0)."
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Afinidad técnica con el perfil del estudiante (0.0 a 1.0).",
     )
     modality_score: float = Field(
         default=0.0,
         ge=0.0,
         le=1.0,
-        description="Puntuación por modalidad (Híbrido > Presencial > Remoto)."
+        description="Puntuación por modalidad (Híbrido > Presencial > Remoto).",
     )
     location_score: float = Field(
         default=0.0,
         ge=0.0,
         le=1.0,
-        description="Puntuación por cercanía a Ate / Lima Centro-Este (1.0 para Lima Centro/Este, 0.7 otros Lima, 0.5 remoto)."
+        description="Puntuación por cercanía y accesibilidad dentro de Lima Metropolitana.",
     )
     final_ranking_score: float = Field(
         default=0.0,
         ge=0.0,
         le=100.0,
-        description="Puntuación final ponderada de 0 a 100."
+        description="Puntuación final ponderada de 0 a 100.",
     )
     matching_skills: List[str] = Field(
-        default_factory=list, 
-        description="Habilidades que el candidato sí cumple para esta vacante."
+        default_factory=list,
+        description="Habilidades que el candidato sí cumple para esta vacante.",
     )
     missing_skills: List[str] = Field(
-        default_factory=list, 
-        description="Requisitos deseables o técnicos que el candidato no menciona en su CV."
+        default_factory=list,
+        description="Requisitos deseables o técnicos que el candidato no menciona en su CV.",
     )
     verdict_summary: str = Field(
-        ..., 
-        description="Síntesis de 2 a 3 líneas explicando por qué conviene o no postular."
-    )
-    pitch_recommendation: str = Field(
-        default="",
-        description="(Obsoleto) Se mantiene vacío por compatibilidad con la columna existente en la base de datos.",
+        ...,
+        description="Síntesis de 2 a 3 líneas explicando por qué conviene o no postular.",
     )
