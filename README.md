@@ -106,14 +106,14 @@ flowchart TD
     Fuentes --> Scraper
     Scraper --> Dedup
     Dedup --> PreFilter
-    PreFilter -->|Apta Preprofesional| CB
-    CB <-->|Inferencia Estructurada| Gemini
-    PreFilter -->|Evaluada / Descartada| Repo
-    CB -->|Evaluada| Repo
-    Repo -->|HTTPS PostgREST / service_role| CloudDB
+    PreFilter -->|"Apta Preprofesional"| CB
+    CB <-->|"Inferencia Estructurada"| Gemini
+    PreFilter -->|"Evaluada / Descartada"| Repo
+    CB -->|"Evaluada"| Repo
+    Repo -->|"HTTPS PostgREST / service_role"| CloudDB
 
-    CloudDB <-->|Server Actions & SSR (RLS)| Frontend
-    CloudDB <-->|Auth Session Cookies| AuthSystem
+    CloudDB <-->|"Server Actions & SSR - RLS"| Frontend
+    CloudDB <-->|"Auth Session Cookies"| AuthSystem
 ```
 
 ---
