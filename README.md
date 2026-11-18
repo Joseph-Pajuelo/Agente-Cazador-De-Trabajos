@@ -1,4 +1,4 @@
-# 🎯 ChambaPulse (`Agente-Cazador-De-Trabajos`) — Radar Inteligente de Prácticas Preprofesionales
+# 🎯 ChambaPulse (`Buscador-de-practicas`) — Radar Inteligente de Prácticas Preprofesionales
 
 ![Next.js](https://img.shields.io/badge/Next.js-15-000000?logo=next.js&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
@@ -38,7 +38,7 @@ Buscar prácticas preprofesionales en tecnología, datos y desarrollo de softwar
 El repositorio está organizado como un **monorepo desacoplado** en tres bloques principales (100% web y cloud-native, sin dependencias legadas de escritorio/PDF):
 
 ```text
-Agente-Cazador-De-Trabajos/
+Buscador-de-practicas/
 ├── apps/
 │   └── web/                         # Frontend Next.js 15 (App Router, React 19, Tailwind CSS v4, TypeScript)
 │       ├── public/sources/          # Logos WebP de portales (bumeran, computrabajo, cvmatcher, linkedin)
@@ -127,8 +127,8 @@ flowchart TD
 
 ### Paso 1: Clonar y configurar variables de entorno
 ```bash
-git clone https://github.com/Joseph-Pajuelo/Agente-Cazador-De-Trabajos.git
-cd Agente-Cazador-De-Trabajos
+git clone https://github.com/Joseph-Pajuelo/Buscador-de-practicas.git
+cd Buscador-de-practicas
 
 cp .env.example .env
 cp apps/web/.env.local.example apps/web/.env.local
